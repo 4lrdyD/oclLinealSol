@@ -1,5 +1,5 @@
 //==========================================
-//revisión 0.7.07 20-06-2019, 21:35, VS 2017
+//revisión 0.7.1 30-06-2019, 00:40, VS 2017
 //==========================================
 #pragma once
 #ifdef HEADER_EXPORTS
@@ -273,6 +273,24 @@ public:
 		dispersa (ver función fac_sparse_chol)*/
 		void SELldlt_sparse_c(af_array* dC, af_array elmL,
 			af_array colL, af_array rowL, af_array dB);
+	
+	static HEADER_API
+		/*Implace
+		factorización de cholesky de una matriz 
+		dispersa y simétrica, almacenada en formato
+		SKS (Skyline Storage)
+		ver ayuda de la función fac_sparse_chol_sks
+        */
+	void fac_sparse_ldlt_sks(af_array elmA,
+		af_array idxA);
+
+	static HEADER_API
+		/*Solución del sistema Ax=b, para una
+		matriz simétrica usando la factorización
+		LDLt, teniendo la factorización de A, 
+		almacenada en formato SKS*/
+	void SELldlt_sparse_sks(af_array* dC, af_array elmL,
+		af_array idxL, af_array dB);
 	//-------------------
 	//funciones de prueba
 	//-------------------

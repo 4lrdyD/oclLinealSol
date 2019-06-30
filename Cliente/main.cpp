@@ -177,16 +177,16 @@ std::cout << dA.dims(0)<<" "<<dA.dims(1) << std::endl;
 		af_print(dL);*/
 }
 
-int main1()
+int main_sparse_c()//sparse_c
 {
-	float _M[] = { 5,1,-2,0,1,2,0,0,-2,0,4,1,0,0,1,3 };
+	/*float _M[] = { 5,1,-2,0,1,2,0,0,-2,0,4,1,0,0,1,3 };
 	float _b[] = { 1,5,14,15};
 	array M(4, 4, _M);
 	array b(4, 1, _b);
 	af_print(M);
-	af_print(b);
+	af_print(b);*/
 
-	/*float _M[] = { 3, 1, 5, 1, 0, 3, 0,
+	float _M[] = { 3, 1, 5, 1, 0, 3, 0,
 		1, 1, 0, 5, 0, 0, 0,
 		5, 0, 2, 0, 4, 0, 0,
 		1, 5, 0, 9, 0, 0, 6,
@@ -205,9 +205,9 @@ int main1()
 		array M(7, 7, _M);
 		array b(7, 1, _b);
 		af_print(M);
-		af_print(b);*/
+		af_print(b);
 
-	float _elmA[] = { 5,1,-2,2,4,1,3 };
+	/*float _elmA[] = { 5,1,-2,2,4,1,3 };
 	int _colA[] = { 0,3,4,6 };
 	int _rowA[] = { 1,2,3};
 	float _elmL[] = { 0,0,0,0,0,0,0,0};
@@ -219,9 +219,9 @@ int main1()
 	array rowA(3, 1, _rowA);
 	array elmL(8, 1, _elmL);
 	array colL(4, 1, _colL);
-	array rowL(4, 1, _rowL);
+	array rowL(4, 1, _rowL);*/
 
-	/*float _elmA[] = { 3,1,5,1,3,1,5,2,4,9,6,2,11,5,1 };
+	float _elmA[] = { 3,1,5,1,3,1,5,2,4,9,6,2,11,5,1 };
 	int _colA[] = { 0,5,7,9,11,13,14 };
 	int _rowA[] = { 1,2,3,5,3,4,6,6 };
 	float _elmL[] = { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -235,7 +235,7 @@ int main1()
 	array rowA(8, 1, _rowA);
 	array elmL(23, 1, _elmL);
 	array colL(7, 1, _colL);
-	array rowL(16, 1, _rowL);*/
+	array rowL(16, 1, _rowL);
 
 	af_array fac;
 	AFire::fac_ldlt_c(&fac, M.get());
@@ -243,25 +243,109 @@ int main1()
 
 	af_array sol;
 	AFire::SELldlt_c(&sol, M.get(), b.get());
-	af_print_array(sol);
-
-	//AFire::fac_sparse_ldlt_c(elmA.get(), colA.get(),
-		//rowA.get(), elmL.get(), colL.get(), rowL.get());
-	//af_print(elmL);
-
-	//af_release_array(sol);
-	//AFire::SELldlt_sparse_c(&sol, elmL.get(), colL.get(),
-		//rowL.get(), b.get());
 	//af_print_array(sol);
+
+	AFire::fac_sparse_ldlt_c(elmA.get(), colA.get(),
+		rowA.get(), elmL.get(), colL.get(), rowL.get());
+	af_print(elmL);
+
 	af_release_array(sol);
-	AFire::SELldlt_sparse_c(&sol, elmA.get(), colA.get(),
-		rowA.get(), elmL.get(), colL.get(), rowL.get(),
-		b.get());
-	af_print_array(sol);
+	AFire::SELldlt_sparse_c(&sol, elmL.get(), colL.get(),
+		rowL.get(), b.get());
+	//af_print_array(sol);
+
 	return 0;
 }
 
-int main()
+int main()//sparse_sks
+{
+	/*float _M[] = { 5,1,-2,0,1,2,0,0,-2,0,4,1,0,0,1,3 };
+	float _b[] = { 1,5,14,15 };
+	array M(4, 4, _M);
+	array b(4, 1, _b);
+	af_print(M);
+	af_print(b);*/
+
+	float _M[] = { 3, 1, 5, 1, 0, 3, 0,
+		1, 1, 0, 5, 0, 0, 0,
+		5, 0, 2, 0, 4, 0, 0,
+		1, 5, 0, 9, 0, 0, 6,
+		0, 0, 4, 0, 2, 0, 11,
+		3, 0, 0, 0, 0, 5, 0,
+		0, 0, 0, 6, 11, 0, 1 };
+
+	float _b[] = { 9.0000,
+			5.0000,
+			14.0000,
+			15.0000,
+			12,
+			10,
+			13 };
+
+		array M(7, 7, _M);
+		array b(7, 1, _b);
+		af_print(M);
+		af_print(b);
+
+	/*float _elmA[] = { 5,1,-2,2,0,4,1,3 };
+	int _idxA[] = { 0,3,5,7 };
+
+	array elmA(8, 1, _elmA);
+	array idxA(4, 1, _idxA);*/
+
+	float _elmA[] = { 3.0,
+  1.0,
+  5.0,
+  1.0,
+  0.0,
+  3.0,
+  1.0,
+  0.0,
+  5.0,
+  0.0,
+  0.0,
+  2.0,
+  0.0,
+  4.0,
+  0.0,
+  9.0,
+  0.0,
+  0.0,
+  6.0,
+  2.0,
+  0.0,
+ 11.0,
+  5.0,
+  0.0,
+  1.0 };
+	int _idxA[] = { 0,
+  6,
+ 11,
+ 15,
+ 19,
+ 22,
+ 24};
+
+	array elmA(25, 1, _elmA);
+	array idxA(7, 1, _idxA);
+
+	af_array sol;
+	AFire::SELldlt_c(&sol, M.get(), b.get());
+	af_print_array(sol);
+
+	AFire::fac_sparse_ldlt_sks(elmA.get(), idxA.get());
+	af_print(elmA);
+	
+	af_release_array(sol);
+	AFire::SELldlt_sparse_sks(&sol, elmA.get(),
+		idxA.get(), b.get());
+	af_print_array(sol);
+	
+
+	return 0;
+}
+
+int main3()
 {
 	const int size = 7;
 	int mat[size][size] = { 3, 1, 5, 1, 0, 3, 0,
