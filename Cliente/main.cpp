@@ -259,14 +259,14 @@ int main_sparse_c()//sparse_c
 
 int main()//sparse_sks
 {
-	/*float _M[] = { 5,1,-2,0,1,2,0,0,-2,0,4,1,0,0,1,3 };
-	float _b[] = { 1,5,14,15 };
+	double _M[] = { 5,1,-2,0,1,2,0,0,-2,0,4,1,0,0,1,3 };
+	double _b[] = { 1,5,14,15 };
 	array M(4, 4, _M);
 	array b(4, 1, _b);
 	af_print(M);
-	af_print(b);*/
+	af_print(b);
 
-	float _M[] = { 3, 1, 5, 1, 0, 3, 0,
+	/*double _M[] = { 3, 1, 5, 1, 0, 3, 0,
 		1, 1, 0, 5, 0, 0, 0,
 		5, 0, 2, 0, 4, 0, 0,
 		1, 5, 0, 9, 0, 0, 6,
@@ -274,7 +274,7 @@ int main()//sparse_sks
 		3, 0, 0, 0, 0, 5, 0,
 		0, 0, 0, 6, 11, 0, 1 };
 
-	float _b[] = { 9.0000,
+	double _b[] = { 9.0000,
 			5.0000,
 			14.0000,
 			15.0000,
@@ -285,15 +285,15 @@ int main()//sparse_sks
 		array M(7, 7, _M);
 		array b(7, 1, _b);
 		af_print(M);
-		af_print(b);
+		af_print(b);*/
 
-	/*float _elmA[] = { 5,1,-2,2,0,4,1,3 };
+	double _elmA[] = { 5,1,-2,2,0,4,1,3 };
 	int _idxA[] = { 0,3,5,7 };
 
 	array elmA(8, 1, _elmA);
-	array idxA(4, 1, _idxA);*/
+	array idxA(4, 1, _idxA);
 
-	float _elmA[] = { 3.0,
+/*	double _elmA[] = { 3.0,
   1.0,
   5.0,
   1.0,
@@ -327,17 +327,17 @@ int main()//sparse_sks
  24};
 
 	array elmA(25, 1, _elmA);
-	array idxA(7, 1, _idxA);
+	array idxA(7, 1, _idxA);*/
 
 	af_array sol;
-	AFire::SELldlt_c(&sol, M.get(), b.get());
+	AFire::SELchol_c(&sol, M.get(), b.get());
 	af_print_array(sol);
 
-	AFire::fac_sparse_ldlt_sks(elmA.get(), idxA.get());
+	AFire::fac_sparse_chol_sks(elmA.get(), idxA.get());
 	af_print(elmA);
 	
 	af_release_array(sol);
-	AFire::SELldlt_sparse_sks(&sol, elmA.get(),
+	AFire::SELchol_sparse_sks(&sol, elmA.get(),
 		idxA.get(), b.get());
 	af_print_array(sol);
 	

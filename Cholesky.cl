@@ -1,6 +1,6 @@
 /*
 =========================================
-revisión 0.0.7 20-06-2019, 22:20 VS 2017
+revisión 0.0.8 02-07-2019, 00:00 VS 2017
 =========================================
 */
 /* Solución de un sistema de ecuaciones, usando 
@@ -66,6 +66,26 @@ void Chol_sparse_6_csp(__global float* elmL,
 	__global int* colL, __global int* rowL, __global float* y,
 	int order, int step, __local float* partialSum);
 
+void chol_sparse_1_sks_sp(__global float* elmL,
+	__global int* idxL, int order, int step);
+
+void chol_sparse_2_sks_sp(__global float* elmL,
+	__global int* idxL, int order, int step);
+
+void chol_sparse_3_sks_sp(__global float* elmL,
+	__global int* idxL, int order);
+
+void chol_sparse_4_sks_sp(__global float* elmL,
+	__global int* idxL, __global float* b, int order,
+	int step);
+
+void chol_sparse_5_sks_sp(__global float* elmL,
+	__global int* idxL, __global float* b, int order);
+
+void chol_sparse_6_sks_sp(__global float* elmL,
+	__global int* idxL, __global float* y,
+	int order, int step, __local float* partialSum);
+
 //double
 void Chol_1_c(__global double* A, int order, int step);
 void Chol_2_c(__global double* A, int order, int step);
@@ -97,6 +117,26 @@ void Chol_sparse_5(__global double* elmL,
 
 void Chol_sparse_6(__global double* elmL,
 	__global int* colL, __global int* rowL, __global double* y,
+	int order, int step, __local double* partialSum);
+
+void chol_sparse_1_sks(__global double* elmL,
+	__global int* idxL, int order, int step);
+
+void chol_sparse_2_sks(__global double* elmL,
+	__global int* idxL, int order, int step);
+
+void chol_sparse_3_sks(__global double* elmL,
+	__global int* idxL, int order);
+
+void chol_sparse_4_sks(__global double* elmL,
+	__global int* idxL, __global double* b, int order,
+	int step);
+
+void chol_sparse_5_sks(__global double* elmL,
+	__global int* idxL, __global double* b, int order);
+
+void chol_sparse_6_sks(__global double* elmL,
+	__global int* idxL, __global double* y,
 	int order, int step, __local double* partialSum);
 
 //------------------------
@@ -455,7 +495,6 @@ rowA=[	1
 	deben estar ya con sus valores finales, estos deben
 	obtenerse mediante una factorización simbólica*/
 
-
 //-------------------------------
 __kernel void
 Cholesky_sparse_c_sp(__global float* elmA,__global int* colA,
@@ -779,6 +818,329 @@ void Chol_sparse_6_csp(__global float* elmL,
 		}
 		if (tx == 0)
 			y[fL] = native_divide(y[fL] - partialSum[0], diag);
+	}
+}
+
+/*Aplicado a matrices dispersas y simétricas almacenadas
+en formato SKS (Skyline Storage):
+
+Sea una matriz representada en su forma densa por A.
+esta matriz en su forma dispersa en formato SKS será
+representada por 2 vectores.
+
+*elmA: Vector de elementos distintos de cero, guardados
+columna a columna.
+
+*idxA: Vector de índices, donde cada elemento indica la
+ubicación en elmA del primer elemento distinto de cero en
+cada columna de A
+
+a diferencia del formato SCS (ver más arriba) que
+necesita adicionalmente un vector de índices
+de fila, en el formato SKS se asume que los elementos
+en elmA correspondientes a una columna están ordenados
+uno despues de otro apartir de la diagonal.
+
+ya que la matriz es simétrica solo se considera la parte
+triangular inferior.
+
+ejemplo para:
+A=[	3  4  0  1  0  0  0
+	4  1  2  0  0  0  0
+	0  2  2  4  4  0  0
+	1  0  4  9  0  5  0
+	0  0  4  0  2  0  1
+	0  0  0  5  0  5  0
+	0  0  0  0  1  0  8]
+
+elmA=[	3
+		4
+		0
+		1
+		1
+		2
+		0
+		2
+		4
+		4
+		9
+		0
+		5
+		2
+		0
+		1
+		5
+		0
+		8]
+
+idxA=[	0
+		4
+		7
+		10
+		13
+		16
+		18]
+
+	para la columna i el rango de sus elementos en elmA
+	van de index[i] a index[i+1]-1
+
+	se almacenan todos los elementos desde la diagonal
+	hasta el último elemento distinto de cero, incluyendo
+	los ceros que haya entre estos.
+
+	al ir avanzando de columna a columna el índice de filas
+	no puede disminuir, es por eso que en el ejemplo para
+	la columna 2 se almacena un cero adicional. Esto para
+	que al realizar la factorización de cholesky o LDLt,
+	ya no sea necesario realizar una factorización
+	simbólica (la estructura se matiene)
+
+	este formato es ideal cuando los elementos distintos
+	cero tienden a estar cerca de la diagonal, (e.g una
+	matriz banda), en matrices en donde este
+	comportamiento no se da, este formato no es el ideal,
+	por ejemplo si solo en la primera columna el último
+	elemento es distinto de cero, siguiendo las reglas
+	,tendrían que almacenarse prácticamente todos los
+	elementos de la matriz.
+*/
+
+//-----------------------------------
+//elmL es elmA o una copia del mismo
+__kernel void
+chol_sparse_sks_sp(__global float* elmL,
+	__global int* idxL, int size_elmL, int size_idxL,
+	__global float* b, __local float* partialSum, int step,
+	int sstep)
+{
+	//la iteración principal se realiza en el host
+
+	//se modificará una sola columna
+	if (sstep == 0)
+		chol_sparse_1_sks_sp(elmL, idxL, size_idxL, step);
+
+	//se modificará las columnas siguientes a la columna
+	//implicada
+	else if (sstep == 1)
+		chol_sparse_2_sks_sp(elmL, idxL, size_idxL, step);
+
+	//una vez usada las funciones anteriores todavía es 
+	//necesario modificar la diagonal D[i]=sqrt(D[i]) para 
+	//concluir la factorización
+	else if (sstep == 2)
+		chol_sparse_3_sks_sp(elmL, idxL, size_idxL);
+
+	//hasta aqui la factorización esta concluida, la parte
+	//triangular inferior de A contendrá la factorización
+	//de Cholesky
+	//desde aqui se procederá a solucionar el sistema 
+	//L*transpose(L)x=b
+
+	//se resolverá el sistema Ly=b, y=transpose(L)*x
+	else if (sstep == 3)
+		chol_sparse_4_sks_sp(elmL, idxL, b, size_idxL,
+			step);
+	else if (sstep == 4)
+		chol_sparse_5_sks_sp(elmL, idxL, b, size_idxL);
+
+	//se resolverá el sistema transpose(L)*x=y
+	//"y" ya debe haberse obtenido usando la función anterior
+	else
+		chol_sparse_6_sks_sp(elmL, idxL, b, size_idxL,
+			step, partialSum);
+}
+
+void chol_sparse_1_sks_sp(__global float* elmL,
+	__global int* idxL, int order, int step)
+{
+	//es procedimiento solo deberá realizarse hasta 
+	//la columna order-2 
+	//Siendo order el orden de la matriz, la última 
+	//columna tendrá índice order-1, donde solo contiene
+	//el elemento diagonal
+	if (step < order - 1) {
+		//obteniendo la ubicación del primer elemento 
+		//de la columna determinada por step
+		int pos = idxL[step];
+
+		//posición siguiente
+		int pos_nxt = idxL[step + 1];
+
+		//índice global de hilo
+		int tx = get_global_id(0);
+
+		//número total de hilos
+		int ntx = get_num_groups(0)*get_local_size(0);
+
+		//elemento diagonal. El primer
+		//elemento guardado en elmA para cada columna es el
+		//elemento diagonal
+		float _r = native_sqrt(elmL[pos]);
+
+		//cada hilo se encargará de modificar un elemento 
+		//de la columna
+		for (int x = tx + pos + 1; x < pos_nxt; x += ntx) {
+			elmL[x] = native_divide(elmL[x], _r);
+		}
+	}
+}
+
+void chol_sparse_2_sks_sp(__global float* elmL,
+	__global int* idxL, int order, int step)
+{
+	//este procedimiento solo deberá realizarse hasta 
+	//la columna order-2 
+	//Siendo order el orden de la matriz, la última 
+	//columna tendrá índice order-1, donde solo contiene
+	//el elemento diagonal
+	if (step < order - 1) {
+		//índice local de grupo
+		int bx = get_group_id(0);
+
+		//índice local de hilo
+		int tx = get_local_id(0);
+
+		//posición del primer elemento de la columna de elmL
+		int pos_elmL = idxL[step];
+
+		//número de elementos en elmL para la columna
+		//sin contar la diagonal
+		int nEl = idxL[step + 1] - pos_elmL - 1;
+
+		if (nEl > 0) {
+			for (int b = bx; b < nEl; b += get_num_groups(0)) {
+				//indice de la columna a modificar
+				int colId = step + b + 1;
+
+				//primer factor
+				float k1 = elmL[pos_elmL + b + 1];
+
+				for (int x = b + tx; x < nEl; x += get_local_size(0)) {
+
+					//segundo factor
+					float k2 = elmL[pos_elmL + x + 1];
+
+					//posición final en elmL
+					int	posf = idxL[colId] + x - b;
+
+					elmL[posf] -= k1 * k2;
+				}
+			}
+		}
+	}
+}
+
+void chol_sparse_3_sks_sp(__global float* elmL,
+	__global int* idxL, int order)
+{
+
+	//índice global de hilo
+	int tx = get_global_id(0);
+
+	//número total de hilos
+	int ntx = get_num_groups(0)*get_local_size(0);
+
+	for (int x = tx; x < order; x += ntx) {
+		int diag = idxL[x];
+		elmL[diag] = native_sqrt(elmL[diag]);
+	}
+}
+
+void chol_sparse_4_sks_sp(__global float* elmL,
+	__global int* idxL, __global float* b, int order,
+	int step)
+{
+	if (step < order - 1) {
+		//índice global de hilo
+		int tx = get_global_id(0);
+
+		//número total de hilos
+		int ntx = get_num_groups(0)*get_local_size(0);
+
+		//posición del elemento diagonal
+		int diag = idxL[step];
+
+		//número de elementos para una columna
+		int nEl = idxL[step + 1] - diag;
+
+		//deben haber elementos aparte del elemento diagonal
+		if (nEl > 1) {
+
+			//elemento diagonal y elemento correspondiente en b
+			float k = native_divide(b[step], elmL[diag]);
+
+			for (int x = tx; x < nEl - 1; x += ntx) {
+				int rowId = step + x + 1;
+				b[rowId] -= k * elmL[diag + x + 1];
+			}
+		}
+	}
+}
+
+void chol_sparse_5_sks_sp(__global float* elmL,
+	__global int* idxL, __global float* b, int order)
+{
+
+	//índice global de hilo
+	int tx = get_global_id(0);
+
+	//número total de hilos
+	int ntx = get_num_groups(0)*get_local_size(0);
+
+	for (int x = tx; x < order; x += ntx) {
+		//ubicación del elemento diagonal en elmL
+		int diag = idxL[x];
+		b[x] = native_divide(b[x], elmL[diag]);
+	}
+}
+
+void chol_sparse_6_sks_sp(__global float* elmL,
+	__global int* idxL, __global float* y,
+	int order, int step, __local float* partialSum)
+{
+	//indice de bloque
+	int bx = get_group_id(0);
+
+	//índice global de hilo
+	int tx = get_local_id(0);
+
+	//número total de hilos
+	int ntx = get_local_size(0);
+
+	//indice de la fila de L implicada
+	int fL = order - step - 1;
+
+	//ubicación del elemento diagonal de la fila en elmL
+	int diagId = idxL[fL];
+
+	//número de elementos en la fila
+	int nEl = (fL == order - 1 ? 1 : idxL[fL + 1] - diagId);
+
+	//elemento diagonal
+	float diag = elmL[diagId];
+
+	//valor donde se guardará una suma parcial
+	float sum = 0.0f;
+
+	//solo se usará un bloque
+	if (bx == 0) {
+		for (int x = tx; x < nEl - 1; x += ntx) {
+			int rowId = fL + x + 1;
+			sum += elmL[diagId + x + 1] * y[rowId];
+		}
+		partialSum[tx] = sum;
+
+		//reducción en paralelo pare determinar la suma de
+		//todos los elementos de partialSum
+		for (int stride = ntx / 2; stride > 0; stride /= 2) {
+			barrier(CLK_LOCAL_MEM_FENCE);
+			if (tx < stride) {
+				partialSum[tx] += partialSum[tx + stride];
+			}
+		}
+		if (tx == 0)
+			y[fL] = native_divide(y[fL] - partialSum[0],
+				diag);
 	}
 }
 
@@ -1448,6 +1810,328 @@ void Chol_sparse_6(__global double* elmL,
 	if (bx == 0) {
 		for (int x = tx; x < nEl - 1; x += ntx) {
 			int rowId = rowL[pos_rowL + x];
+			sum += elmL[diagId + x + 1] * y[rowId];
+		}
+		partialSum[tx] = sum;
+
+		//reducción en paralelo pare determinar la suma de
+		//todos los elementos de partialSum
+		for (int stride = ntx / 2; stride > 0; stride /= 2) {
+			barrier(CLK_LOCAL_MEM_FENCE);
+			if (tx < stride) {
+				partialSum[tx] += partialSum[tx + stride];
+			}
+		}
+		if (tx == 0)
+			y[fL] = (y[fL] - partialSum[0]) / diag;
+	}
+}
+
+/*Aplicado a matrices dispersas y simétricas almacenadas
+en formato SKS (Skyline Storage):
+
+Sea una matriz representada en su forma densa por A.
+esta matriz en su forma dispersa en formato SKS será
+representada por 2 vectores.
+
+*elmA: Vector de elementos distintos de cero, guardados
+columna a columna.
+
+*idxA: Vector de índices, donde cada elemento indica la
+ubicación en elmA del primer elemento distinto de cero en
+cada columna de A
+
+a diferencia del formato SCS (ver más arriba) que
+necesita adicionalmente un vector de índices
+de fila, en el formato SKS se asume que los elementos
+en elmA correspondientes a una columna están ordenados
+uno despues de otro apartir de la diagonal.
+
+ya que la matriz es simétrica solo se considera la parte
+triangular inferior.
+
+ejemplo para:
+A=[	3  4  0  1  0  0  0
+	4  1  2  0  0  0  0
+	0  2  2  4  4  0  0
+	1  0  4  9  0  5  0
+	0  0  4  0  2  0  1
+	0  0  0  5  0  5  0
+	0  0  0  0  1  0  8]
+
+elmA=[	3
+		4
+		0
+		1
+		1
+		2
+		0
+		2
+		4
+		4
+		9
+		0
+		5
+		2
+		0
+		1
+		5
+		0
+		8]
+
+idxA=[	0
+		4
+		7
+		10
+		13
+		16
+		18]
+
+	para la columna i el rango de sus elementos en elmA
+	van de index[i] a index[i+1]-1
+
+	se almacenan todos los elementos desde la diagonal
+	hasta el último elemento distinto de cero, incluyendo
+	los ceros que haya entre estos.
+
+	al ir avanzando de columna a columna el índice de filas
+	no puede disminuir, es por eso que en el ejemplo para
+	la columna 2 se almacena un cero adicional. Esto para
+	que al realizar la factorización de cholesky o LDLt,
+	ya no sea necesario realizar una factorización
+	simbólica (la estructura se matiene)
+
+	este formato es ideal cuando los elementos distintos
+	cero tienden a estar cerca de la diagonal, (e.g una
+	matriz banda), en matrices en donde este
+	comportamiento no se da, este formato no es el ideal,
+	por ejemplo si solo en la primera columna el último
+	elemento es distinto de cero, siguiendo las reglas
+	,tendrían que almacenarse prácticamente todos los
+	elementos de la matriz.
+*/
+
+//-----------------------------------
+//elmL es elmA o una copia del mismo
+__kernel void
+chol_sparse_sks(__global double* elmL,
+	__global int* idxL, int size_elmL, int size_idxL,
+	__global double* b, __local double* partialSum, int step,
+	int sstep)
+{
+	//la iteración principal se realiza en el host
+
+	//se modificará una sola columna
+	if (sstep == 0)
+		chol_sparse_1_sks(elmL, idxL, size_idxL, step);
+
+	//se modificará las columnas siguientes a la columna
+	//implicada
+	else if (sstep == 1)
+		chol_sparse_2_sks(elmL, idxL, size_idxL, step);
+
+	//una vez usada las funciones anteriores todavía es 
+	//necesario modificar la diagonal D[i]=sqrt(D[i]) para 
+	//concluir la factorización
+	else if (sstep == 2)
+		chol_sparse_3_sks(elmL, idxL, size_idxL);
+
+	//hasta aqui la factorización esta concluida, la parte
+	//triangular inferior de A contendrá la factorización
+	//de Cholesky
+	//desde aqui se procederá a solucionar el sistema 
+	//L*transpose(L)x=b
+
+	//se resolverá el sistema Ly=b, y=transpose(L)*x
+	else if (sstep == 3)
+		chol_sparse_4_sks(elmL, idxL, b, size_idxL,
+			step);
+	else if (sstep == 4)
+		chol_sparse_5_sks(elmL, idxL, b, size_idxL);
+
+	//se resolverá el sistema transpose(L)*x=y
+	//"y" ya debe haberse obtenido usando la función anterior
+	else
+		chol_sparse_6_sks(elmL, idxL, b, size_idxL,
+			step, partialSum);
+}
+
+void chol_sparse_1_sks(__global double* elmL,
+	__global int* idxL, int order, int step)
+{
+	//es procedimiento solo deberá realizarse hasta 
+	//la columna order-2 
+	//Siendo order el orden de la matriz, la última 
+	//columna tendrá índice order-1, donde solo contiene
+	//el elemento diagonal
+	if (step < order - 1) {
+		//obteniendo la ubicación del primer elemento 
+		//de la columna determinada por step
+		int pos = idxL[step];
+
+		//posición siguiente
+		int pos_nxt = idxL[step + 1];
+
+		//índice global de hilo
+		int tx = get_global_id(0);
+
+		//número total de hilos
+		int ntx = get_num_groups(0)*get_local_size(0);
+
+		//elemento diagonal. El primer
+		//elemento guardado en elmA para cada columna es el
+		//elemento diagonal
+		double _r = sqrt(elmL[pos]);
+
+		//cada hilo se encargará de modificar un elemento 
+		//de la columna
+		for (int x = tx + pos + 1; x < pos_nxt; x += ntx) {
+			elmL[x] /= _r; 
+		}
+	}
+}
+
+void chol_sparse_2_sks(__global double* elmL,
+	__global int* idxL, int order, int step)
+{
+	//este procedimiento solo deberá realizarse hasta 
+	//la columna order-2 
+	//Siendo order el orden de la matriz, la última 
+	//columna tendrá índice order-1, donde solo contiene
+	//el elemento diagonal
+	if (step < order - 1) {
+		//índice local de grupo
+		int bx = get_group_id(0);
+
+		//índice local de hilo
+		int tx = get_local_id(0);
+
+		//posición del primer elemento de la columna de elmL
+		int pos_elmL = idxL[step];
+
+		//número de elementos en elmL para la columna
+		//sin contar la diagonal
+		int nEl = idxL[step + 1] - pos_elmL - 1;
+
+		if (nEl > 0) {
+			for (int b = bx; b < nEl; b += get_num_groups(0)) {
+				//indice de la columna a modificar
+				int colId = step + b + 1;
+
+				//primer factor
+				double k1 = elmL[pos_elmL + b + 1];
+
+				for (int x = b + tx; x < nEl; x += get_local_size(0)) {
+
+					//segundo factor
+					double k2 = elmL[pos_elmL + x + 1];
+
+					//posición final en elmL
+					int	posf = idxL[colId] + x - b;
+
+					elmL[posf] -= k1 * k2;
+				}
+			}
+		}
+	}
+}
+
+void chol_sparse_3_sks(__global double* elmL,
+	__global int* idxL, int order)
+{
+
+	//índice global de hilo
+	int tx = get_global_id(0);
+
+	//número total de hilos
+	int ntx = get_num_groups(0)*get_local_size(0);
+
+	for (int x = tx; x < order; x += ntx) {
+		int diag = idxL[x];
+		elmL[diag] = sqrt(elmL[diag]);
+	}
+}
+
+void chol_sparse_4_sks(__global double* elmL,
+	__global int* idxL, __global double* b, int order,
+	int step)
+{
+	if (step < order - 1) {
+		//índice global de hilo
+		int tx = get_global_id(0);
+
+		//número total de hilos
+		int ntx = get_num_groups(0)*get_local_size(0);
+
+		//posición del elemento diagonal
+		int diag = idxL[step];
+
+		//número de elementos para una columna
+		int nEl = idxL[step + 1] - diag;
+
+		//deben haber elementos aparte del elemento diagonal
+		if (nEl > 1) {
+
+			//elemento diagonal y elemento correspondiente en b
+			double k = b[step] / elmL[diag];
+
+			for (int x = tx; x < nEl - 1; x += ntx) {
+				int rowId = step + x + 1;
+				b[rowId] -= k * elmL[diag + x + 1];
+			}
+		}
+	}
+}
+
+void chol_sparse_5_sks(__global double* elmL,
+	__global int* idxL, __global double* b, int order)
+{
+
+	//índice global de hilo
+	int tx = get_global_id(0);
+
+	//número total de hilos
+	int ntx = get_num_groups(0)*get_local_size(0);
+
+	for (int x = tx; x < order; x += ntx) {
+		//ubicación del elemento diagonal en elmL
+		int diag = idxL[x];
+		b[x] /= elmL[diag];
+	}
+}
+
+void chol_sparse_6_sks(__global double* elmL,
+	__global int* idxL, __global double* y,
+	int order, int step, __local double* partialSum)
+{
+	//indice de bloque
+	int bx = get_group_id(0);
+
+	//índice global de hilo
+	int tx = get_local_id(0);
+
+	//número total de hilos
+	int ntx = get_local_size(0);
+
+	//indice de la fila de L implicada
+	int fL = order - step - 1;
+
+	//ubicación del elemento diagonal de la fila en elmL
+	int diagId = idxL[fL];
+
+	//número de elementos en la fila
+	int nEl = (fL == order - 1 ? 1 : idxL[fL + 1] - diagId);
+
+	//elemento diagonal
+	double diag = elmL[diagId];
+
+	//valor donde se guardará una suma parcial
+	double sum = 0.0;
+
+	//solo se usará un bloque
+	if (bx == 0) {
+		for (int x = tx; x < nEl - 1; x += ntx) {
+			int rowId = fL + x + 1;
 			sum += elmL[diagId + x + 1] * y[rowId];
 		}
 		partialSum[tx] = sum;

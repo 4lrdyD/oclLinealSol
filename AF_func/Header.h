@@ -1,5 +1,5 @@
 //==========================================
-//revisión 0.7.1 30-06-2019, 00:40, VS 2017
+//revisión 0.7.2 02-07-2019, 00:00, VS 2017
 //==========================================
 #pragma once
 #ifdef HEADER_EXPORTS
@@ -207,6 +207,101 @@ public:
 	void SELchol_sparse_c(af_array* dC, af_array elmL,
 		af_array colL, af_array rowL, af_array dB);
 	
+	static HEADER_API
+		/*Implace
+		factorización de cholesky de una matriz
+		dispersa y simétrica, almacenada en formato
+		SKS (Skyline Storage)
+		Sea una matriz representada en su forma densa por A.
+		esta matriz en su forma dispersa en formato SKS será
+		representada por 2 vectores.
+
+		*elmA: Vector de elementos distintos de cero, guardados
+		columna a columna.
+
+		*idxA: Vector de índices, donde cada elemento indica la
+		ubicación en elmA del primer elemento distinto de cero en
+		cada columna de A
+
+		a diferencia del formato SCS (ver más arriba) que
+		necesita adicionalmente un vector de índices
+		de fila, en el formato SKS se asume que los elementos
+		en elmA correspondientes a una columna están ordenados
+		uno despues de otro apartir de la diagonal.
+
+		ya que la matriz es simétrica solo se considera la parte
+		triangular inferior.
+
+		ejemplo para:
+		A=[	3  4  0  1  0  0  0
+			4  1  2  0  0  0  0
+			0  2  2  4  4  0  0
+			1  0  4  9  0  5  0
+			0  0  4  0  2  0  1
+			0  0  0  5  0  5  0
+			0  0  0  0  1  0  8]
+
+		elmA=[	3
+				4
+				0
+				1
+				1
+				2
+				0
+				2
+				4
+				4
+				9
+				0	
+				5
+				2
+				0
+				1
+				5
+				0
+				8]
+
+		idxA=[	0
+				4
+				7
+				10
+				13
+				16
+				18]
+
+		para la columna i el rango de sus elementos en elmA
+		van de index[i] a index[i+1]-1
+
+		se almacenan todos los elementos desde la diagonal
+		hasta el último elemento distinto de cero, incluyendo
+		los ceros que haya entre estos.
+
+		al ir avanzando de columna a columna el índice de filas
+		no puede disminuir, es por eso que en el ejemplo para
+		la columna 2 se almacena un cero adicional. Esto para
+		que al realizar la factorización de cholesky o LDLt,
+		ya no sea necesario realizar una factorización
+		simbólica (la estructura se matiene)
+
+		este formato es ideal cuando los elementos distintos
+		cero tienden a estar cerca de la diagonal, (e.g una
+		matriz banda), en matrices en donde este
+		comportamiento no se da, este formato no es el ideal,
+		por ejemplo si solo en la primera columna el último
+		elemento es distinto de cero, siguiendo las reglas
+		,tendrían que almacenarse prácticamente todos los
+		elementos de la matriz.
+		*/
+		void fac_sparse_chol_sks(af_array elmA,
+			af_array idxA);
+
+	static HEADER_API
+		/*Solución del sistema Ax=b, para una
+		matriz simétrica usando la factorización
+		de cholesky, teniendo la factorización de A,
+		almacenada en formato SKS*/
+		void SELchol_sparse_sks(af_array* dC, af_array elmL,
+			af_array idxL, af_array dB);
 	//----
 	//LDLT
 	//----
@@ -276,7 +371,7 @@ public:
 	
 	static HEADER_API
 		/*Implace
-		factorización de cholesky de una matriz 
+		factorización LDLt de una matriz 
 		dispersa y simétrica, almacenada en formato
 		SKS (Skyline Storage)
 		ver ayuda de la función fac_sparse_chol_sks
