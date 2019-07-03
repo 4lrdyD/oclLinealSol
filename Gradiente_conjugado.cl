@@ -1,6 +1,6 @@
 /*
 =========================================
-revisión 0.0.1 20-06-2019, 21:35 VS 2017
+revisión 0.0.2 02-07-2019, 23:30 VS 2017
 =========================================
 */
 /* Solución de un sistema de ecuaciones, usando 
@@ -39,6 +39,14 @@ void sparse_mat_vec_mul3_sp(__global float* elmA,
 	__global int* colA, __global float* b, __global float* c,
 	int order);
 
+void sparse_mat_vec_mul1_sks_sp(__global float* elmA,
+	__global int* idxA, __global float* b,
+	__global float* c, int order,
+	__local float* partialSum);
+void sparse_mat_vec_mul2_sks_sp(__global float* elmA,
+	__global int* idxA, __global float* b,
+	__global float* c, int order);
+
 //double
 double atom_add_double(__global double* address, double val);
 void sparse_mat_vec_mul1(__global double* elmA,
@@ -50,6 +58,15 @@ void sparse_mat_vec_mul2(__global double* elmA,
 void sparse_mat_vec_mul3(__global double* elmA,
 	__global int* colA, __global double* b, __global double* c,
 	int order);
+
+void sparse_mat_vec_mul1_sks(__global double* elmA,
+	__global int* idxA, __global double* b,
+	__global double* c, int order,
+	__local double* partialSum);
+void sparse_mat_vec_mul2_sks(__global double* elmA,
+	__global int* idxA, __global double* b,
+	__global double* c, int order);
+
 //------------------------
 //simple precisión (float)
 //------------------------
@@ -101,32 +118,6 @@ gconj_c_sp(__global float* elmA, __global int* colA,
 	}*/
 }
 
-__kernel void
-sparse_mat_vec_mul_sp(__global float* elmA, __global int* colA,
-	__global int* rowA, __global float* b, __global float* c,
-	__local float* partialSum, int order, int step)
-{
-	//multiplicación de matriz por vector
-
-	//transpose(L)*b, los elementos de c serán reemplazados
-	//c[i]=valor
-	if (step == 0)
-		sparse_mat_vec_mul1_sp(elmA, colA, rowA, b, c, order,
-			partialSum);
-	//L*b, los elementos de c se acumularán apartir de su
-	//valor actual 
-	//c[i]+=valor o valores
-	else if (step == 1)
-		sparse_mat_vec_mul2_sp(elmA, colA, rowA, b, c, order);
-
-	//D*b, los elementos de c se acumularán a partir de su
-	//valor actual
-	//c[i]+=valor
-	else if (step == 2)
-		sparse_mat_vec_mul3_sp(elmA, colA, b, c, order);
-	else;
-}
-
 /*Aplicado a matrices dispersas y simétricas:
 
 Sea una matriz representada en su forma densa por A.
@@ -170,10 +161,9 @@ rowA=[	1
 		2
 		3]
 */
-
-/*la multiplicación de una matriz dispersa y simétrica 
+/*la multiplicación de una matriz dispersa y simétrica
 guardada en el formato establecido, se realizará en tres
-partes. Ya que el almacenamiento se hace solo de los 
+partes. Ya que el almacenamiento se hace solo de los
 elementos distintos de cero de la parte triangular superior
 o inferior (que en este caso es el mismo), la matriz en
 su forma densa puede descomponerse en tres términos, una matriz
@@ -183,11 +173,11 @@ diagonal, es decir:
 sea A una matriz cuadrada y simétrica de orden n
 
 L una matriz triangular inferior con los elementos iguales
-a la parte triangular inferior de A, excepto la diagonal 
+a la parte triangular inferior de A, excepto la diagonal
 (estos serán iguales a cero).
 
 U una matriz triangular superior con los elementos iguales
-a la parte triangular superior de A, excepto la diagonal 
+a la parte triangular superior de A, excepto la diagonal
 (estos serán iguales a cero).
 
 D una matriz diagonal con los elementos iguales a la diagonal
@@ -204,10 +194,35 @@ al multiplciar por un vector b puede descomponerse en:
 A*b=L*b + D*b + transpose(L)*b
 
 para multiplicar transpose(L)*b puede usarse L sin modificar
-ninguno de sus campos, solo debe asumirse el almacenamiento 
+ninguno de sus campos, solo debe asumirse el almacenamiento
 por filas en vez de por columnas para tal caso
 
 */
+__kernel void
+sparse_mat_vec_mul_sp(__global float* elmA, __global int* colA,
+	__global int* rowA, __global float* b, __global float* c,
+	__local float* partialSum, int order, int step)
+{
+	//multiplicación de matriz por vector
+
+	//transpose(L)*b, los elementos de c serán reemplazados
+	//c[i]=valor
+	if (step == 0)
+		sparse_mat_vec_mul1_sp(elmA, colA, rowA, b, c, order,
+			partialSum);
+	//L*b, los elementos de c se acumularán apartir de su
+	//valor actual 
+	//c[i]+=valor o valores
+	else if (step == 1)
+		sparse_mat_vec_mul2_sp(elmA, colA, rowA, b, c, order);
+
+	//D*b, los elementos de c se acumularán a partir de su
+	//valor actual
+	//c[i]+=valor
+	else if (step == 2)
+		sparse_mat_vec_mul3_sp(elmA, colA, b, c, order);
+	else;
+}
 
 //transpose(L)*b
 void sparse_mat_vec_mul1_sp(__global float* elmA,
@@ -307,6 +322,153 @@ void sparse_mat_vec_mul3_sp(__global float* elmA,
 	}
 }
 
+//Multiplicación matriz(SKS)-vector
+//---------------------------------
+/*Aplicado a matrices dispersas y simétricas:
+
+Sea una matriz representada en su forma densa por A.
+esta matriz en su forma dispersa almacenada en formato
+SKS (Skyline Storage) será representada
+por 2 vectores.
+
+*elmA: Vector de elementos distintos de cero, guardados
+columna a columna.
+
+*idxA: Vector de índices, donde cada elemento indica la
+ubicación en elmA del primer elemento distinto de cero en
+cada columna de A
+
+para más detalle sobre el formato de almacenamiento SKS 
+ver ayuda de los kernels en los archivos cl de la 
+factorización de Cholesky
+*/
+
+/*la multiplicación de una matriz dispersa y simétrica
+guardada en el formato SKS, se realizará en dos
+partes. Ya que el almacenamiento se hace solo de los
+elementos distintos de cero de la parte triangular superior
+o inferior (que en este caso es lo mismo), la matriz en
+su forma densa puede descomponerse en dos términos,
+una matriz triangular inferior con diagonal cero y una
+matriz triangular superior, es decir:
+
+sea A una matriz cuadrada y simétrica de orden n
+
+L una matriz triangular inferior con los elementos iguales
+a la parte triangular inferior de A, excepto la diagonal
+(estos serán iguales a cero).
+
+U una matriz triangular superior con los elementos iguales
+a la parte triangular superior de A, incluyendo 
+la diagonal.
+
+entonces se cumple que U+L=A
+
+al multiplciar por un vector b puede descomponerse en:
+A*b=U*b + L*b
+
+para multiplicar U*b puede usarse L sin modificar
+ninguno de sus campos, solo debe asumirse el almacenamiento
+por filas en vez de por columnas para tal caso
+*/
+__kernel void
+sparse_mat_vec_mul_sks_sp(__global float* elmA,
+	__global int* idxA, __global float* b,
+	__global float* c, __local float* partialSum,
+	int order, int step)
+{
+	//multiplicación de matriz por vector
+
+	//U*b, los elementos de c serán reemplazados
+	//c[i]=valor
+	if (step == 0)
+		sparse_mat_vec_mul1_sks_sp(elmA, idxA, b, c,
+			order, partialSum);
+	//L*b, los elementos de c se acumularán apartir de su
+	//valor actual 
+	//c[i]+=valor o valores
+	else if (step == 1)
+		sparse_mat_vec_mul2_sks_sp(elmA, idxA, b, c,
+			order);
+	else;
+}
+
+//U*b
+void sparse_mat_vec_mul1_sks_sp(__global float* elmA,
+	__global int* idxA, __global float* b,
+	__global float* c, int order,
+	__local float* partialSum)
+{
+	//indice de bloque
+	int bx = get_group_id(0);
+
+	//índice local de hilo
+	int tx = get_local_id(0);
+
+	for (int row = bx; row < order; row += get_num_groups(0)) {
+
+		//ubicación de elemento diagonal de la fila en elmA
+		int dId = idxA[row];
+
+		//número de elementos en la fila
+		int nEl = (row == order - 1 ? 1 : idxA[row + 1] - dId);
+
+		//valor donde se guardará una suma parcial
+		float sum = 0.0f;
+
+		for (int x = tx; x < nEl; x += get_local_size(0)) {
+			int cId = row + x;
+			sum += elmA[dId + x] * b[cId];
+		}
+		partialSum[tx] = sum;
+
+		//reducción en paralelo pare determinar la suma de
+		//todos los elementos de partialSum
+		for (int stride = get_local_size(0) / 2; stride > 0; stride /= 2) {
+			barrier(CLK_LOCAL_MEM_FENCE);
+			if (tx < stride) {
+				partialSum[tx] += partialSum[tx + stride];
+			}
+		}
+		if (tx == 0)
+			c[row] = partialSum[0];
+	}
+}
+
+//L*b
+void sparse_mat_vec_mul2_sks_sp(__global float* elmA,
+	__global int* idxA, __global float* b,
+	__global float* c, int order)
+{
+	//índice de grupo
+	int bx = get_group_id(0);
+
+	//índice local de hilo
+	int tx = get_local_id(0);
+
+	for (int col = bx; col < order; col += get_num_groups(0)) {
+		//posición del elemento diagonal
+		int dId = idxA[col];
+
+		//número de elementos para una columna
+		int nEl = (col == order - 1 ? 1 : idxA[col + 1] - dId);
+
+		//posición en rowL del primer elemento fuera de la
+		//diagonal (índice)
+		int baseId = dId - col;
+
+		//elemento en b, por el que se multiplica
+		float mul = b[col];
+
+		for (int x = tx; x < nEl - 1; x += get_local_size(0)) {
+			int rId = col + x + 1;
+			float sum = mul * elmA[dId + x + 1];
+			atom_add_float(&(c[rId]), sum);
+		}
+		barrier(CLK_GLOBAL_MEM_FENCE);
+	}
+}
+
 //------------------------
 //precisión doble (double)
 //------------------------
@@ -358,31 +520,6 @@ gconj_c(__global double* elmA, __global int* colA,
 	}*/
 }
 
-__kernel void
-sparse_mat_vec_mul(__global double* elmA, __global int* colA,
-	__global int* rowA, __global double* b, __global double* c,
-	__local double* partialSum, int order, int step)
-{
-	//multiplicación de matriz por vector
-
-	//transpose(L)*b, los elementos de c serán reemplazados
-	//c[i]=valor
-	if (step == 0)
-		sparse_mat_vec_mul1(elmA, colA, rowA, b, c, order,
-			partialSum);
-	//L*b, los elementos de c se acumularán apartir de su
-	//valor actual 
-	//c[i]+=valor o valores
-	else if (step == 1)
-		sparse_mat_vec_mul2(elmA, colA, rowA, b, c, order);
-
-	//D*b, los elementos de c se acumularán a partir de su
-	//valor actual
-	//c[i]+=valor
-	else if (step == 2)
-		sparse_mat_vec_mul3(elmA, colA, b, c, order);
-	else;
-}
 
 /*Aplicado a matrices dispersas y simétricas:
 
@@ -465,6 +602,31 @@ ninguno de sus campos, solo debe asumirse el almacenamiento
 por filas en vez de por columnas para tal caso
 
 */
+__kernel void
+sparse_mat_vec_mul(__global double* elmA, __global int* colA,
+	__global int* rowA, __global double* b, __global double* c,
+	__local double* partialSum, int order, int step)
+{
+	//multiplicación de matriz por vector
+
+	//transpose(L)*b, los elementos de c serán reemplazados
+	//c[i]=valor
+	if (step == 0)
+		sparse_mat_vec_mul1(elmA, colA, rowA, b, c, order,
+			partialSum);
+	//L*b, los elementos de c se acumularán apartir de su
+	//valor actual 
+	//c[i]+=valor o valores
+	else if (step == 1)
+		sparse_mat_vec_mul2(elmA, colA, rowA, b, c, order);
+
+	//D*b, los elementos de c se acumularán a partir de su
+	//valor actual
+	//c[i]+=valor
+	else if (step == 2)
+		sparse_mat_vec_mul3(elmA, colA, b, c, order);
+	else;
+}
 
 //transpose(L)*b
 void sparse_mat_vec_mul1(__global double* elmA,
@@ -564,8 +726,111 @@ void sparse_mat_vec_mul3(__global double* elmA,
 	}
 }
 
-//función atom_add para valores del tipo float en memoria
-//global
+//Multiplicación matriz(SKS)-vector
+//---------------------------------
+__kernel void
+sparse_mat_vec_mul_sks(__global double* elmA,
+	__global int* idxA, __global double* b,
+	__global double* c, __local double* partialSum,
+	int order, int step)
+{
+	//multiplicación de matriz por vector
+
+	//U*b, los elementos de c serán reemplazados
+	//c[i]=valor
+	if (step == 0)
+		sparse_mat_vec_mul1_sks(elmA, idxA, b, c,
+			order, partialSum);
+	//L*b, los elementos de c se acumularán apartir de su
+	//valor actual 
+	//c[i]+=valor o valores
+	else if (step == 1)
+		sparse_mat_vec_mul2_sks(elmA, idxA, b, c,
+			order);
+	else;
+}
+
+//U*b
+void sparse_mat_vec_mul1_sks(__global double* elmA,
+	__global int* idxA, __global double* b,
+	__global double* c, int order,
+	__local double* partialSum)
+{
+	//indice de bloque
+	int bx = get_group_id(0);
+
+	//índice local de hilo
+	int tx = get_local_id(0);
+
+	for (int row = bx; row < order; row += get_num_groups(0)) {
+
+		//ubicación de elemento diagonal de la fila en elmA
+		int dId = idxA[row];
+
+		//número de elementos en la fila
+		int nEl = (row == order - 1 ? 1 : idxA[row + 1] - dId);
+
+		//valor donde se guardará una suma parcial
+		double sum = 0.0;
+
+		for (int x = tx; x < nEl; x += get_local_size(0)) {
+			int cId = row + x;
+			sum += elmA[dId + x] * b[cId];
+		}
+		partialSum[tx] = sum;
+
+		//reducción en paralelo pare determinar la suma de
+		//todos los elementos de partialSum
+		for (int stride = get_local_size(0) / 2; stride > 0; stride /= 2) {
+			barrier(CLK_LOCAL_MEM_FENCE);
+			if (tx < stride) {
+				partialSum[tx] += partialSum[tx + stride];
+			}
+		}
+		if (tx == 0)
+			c[row] = partialSum[0];
+	}
+}
+
+//L*b
+void sparse_mat_vec_mul2_sks(__global double* elmA,
+	__global int* idxA, __global double* b,
+	__global double* c, int order)
+{
+	//índice de grupo
+	int bx = get_group_id(0);
+
+	//índice local de hilo
+	int tx = get_local_id(0);
+
+	for (int col = bx; col < order; col += get_num_groups(0)) {
+		//posición del elemento diagonal
+		int dId = idxA[col];
+
+		//número de elementos para una columna
+		int nEl = (col == order - 1 ? 1 : idxA[col + 1] - dId);
+
+		//posición en rowL del primer elemento fuera de la
+		//diagonal (índice)
+		int baseId = dId - col;
+
+		//elemento en b, por el que se multiplica
+		double mul = b[col];
+
+		for (int x = tx; x < nEl - 1; x += get_local_size(0)) {
+			int rId = col + x + 1;
+			double sum = mul * elmA[dId + x + 1];
+			atom_add_double(&(c[rId]), sum);
+		}
+		barrier(CLK_GLOBAL_MEM_FENCE);
+	}
+}
+
+/*función atom_add para valores del tipo float en memoria
+global
+adaptación en OpenCL del código en:
+https://docs.nvidia.com/cuda/archive/10.1/cuda-c-programming-guide/index.html
+*/
 float atom_add_float(__global float* address, float val) {
 	__global int* address_as_ull =
 		(__global int*)address;
@@ -582,8 +847,11 @@ float atom_add_float(__global float* address, float val) {
 	return as_float(old);
 }
 
-//función atom_add para valores del tipo float en memoria
-//global
+/*función atom_add para valores del tipo double en memoria
+global
+adaptación en OpenCL del código en:
+https://docs.nvidia.com/cuda/archive/10.1/cuda-c-programming-guide/index.html
+*/
 double atom_add_double(__global double* address, double val) {
 	__global long* address_as_ull =
 		(__global long*)address;
@@ -599,6 +867,7 @@ double atom_add_double(__global double* address, double val) {
 
 	return as_double(old);
 }
+
 //------------------------
 //código de sincronización
 //------------------------

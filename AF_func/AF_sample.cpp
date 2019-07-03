@@ -1,5 +1,5 @@
 //==========================================
-//revisión 0.9.3 02-07-2019, 00:00 VS 2017
+//revisión 0.9.4 02-07-2019, 23:30 VS 2017
 //==========================================
 
 #include "Header.h"
@@ -562,6 +562,123 @@ void AFire::sparse_mat_vec_mul(af_array* dC, af_array elmA,
 	af_unlock_array(elmA);
 	af_unlock_array(colA);
 	af_unlock_array(rowA);
+	af_unlock_array(dB);
+	af_unlock_array(c);
+
+	//copiando al argumento de salida
+	af_copy_array(dC, c);
+
+	af_release_array(c);
+}
+
+void AFire::sparse_sks_mat_vec_mul(af_array* dC,
+	af_array elmA, af_array idxA, af_array dB) {
+	//1. Obteniendo el dispositivo, contexto y la cola usada por ArrayFire
+	//cl_context af_context;
+	static cl_context af_context = afcl::getContext();
+	static cl_device_id af_device_id = afcl::getDeviceId();
+	static cl_command_queue af_queue = afcl::getQueue();
+
+	//creando copia de dB
+	af_array c;
+	af_copy_array(&c, dB);
+
+	//2. Obteniendo parámetros necesarios
+
+	//longitud de los vectores
+	dim_t _order[AF_MAX_DIMS];
+	af_get_dims(&_order[0], &_order[1], &_order[2],
+		&_order[3], elmA);
+	cl_int size_elmA = _order[0];
+
+	af_get_dims(&_order[0], &_order[1], &_order[2],
+		&_order[3], idxA);
+	cl_int size_idxA = _order[0];
+
+	size_t localWorkSize = BLOCK_SIZE * BLOCK_SIZE;
+	size_t globalWorkSize = localWorkSize * BLOCK_SIZE;
+
+	int status = CL_SUCCESS;
+
+	af_dtype typef;
+	af_get_type(&typef, elmA);
+
+	int msize = 0;
+	if (typef == f64)
+		msize = sizeof(double);
+	else if (typef == f32)
+		msize = sizeof(float);
+	else;
+
+	//3.obteniendo las referencias cl_mem de los objetos af::array
+	cl_mem *d_elmA = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_ONLY, msize*size_elmA,
+		NULL, &status);
+	af_get_device_ptr((void**)d_elmA, elmA);
+
+	cl_mem *d_idxA = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_ONLY, sizeof(int)*size_idxA,
+		NULL, &status);
+	af_get_device_ptr((void**)d_idxA, idxA);
+
+	cl_mem *d_b = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_ONLY, msize*size_idxA,
+		NULL, &status);
+	af_get_device_ptr((void**)d_b, dB);
+
+	cl_mem *d_c = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_WRITE, msize*size_idxA,
+		NULL, &status);
+	af_get_device_ptr((void**)d_c, c);
+
+	size_t program_length = strlen(gc_source);
+
+	//4.creando el programa, construyendo el ejecutable y extrayendo el punto de entrada
+	// para el Kernel
+	cl_program program = clCreateProgramWithSource(af_context,
+		1, (const char **)&gc_source, &program_length,
+		&status);
+	status = clBuildProgram(program, 1, &af_device_id,
+		NULL, NULL, NULL);
+
+	char* kernelName;
+	if (typef == f64)
+		kernelName = "sparse_mat_vec_mul_sks";
+	else if (typef == f32)
+		kernelName = "sparse_mat_vec_mul_sks_sp";
+	else;
+	cl_kernel kernel = clCreateKernel(program, kernelName,
+		&status);
+
+	cl_int step = 0;
+	// 5.estableciendo los argumentos
+	int i = 0;
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_elmA);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_idxA);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_b);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_c);
+	clSetKernelArg(kernel, i++, msize*localWorkSize, 0);
+	clSetKernelArg(kernel, i++, sizeof(cl_int), &size_idxA);
+	clSetKernelArg(kernel, i++, sizeof(cl_int), &step);
+
+	//6. ejecutando el kernel
+
+	//U*b
+	clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+		&globalWorkSize, &localWorkSize, 0, NULL,
+		NULL);
+
+	//L*b
+	step++;
+	clSetKernelArg(kernel, 6, sizeof(cl_int), &step);
+	clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+		&globalWorkSize, &localWorkSize, 0, NULL,
+		NULL);
+
+
+	//7. devolviendo el control de memoria af::array a ArrayFire 
+	af_unlock_array(elmA);
+	af_unlock_array(idxA);
 	af_unlock_array(dB);
 	af_unlock_array(c);
 
@@ -1367,6 +1484,126 @@ void AFire::SELgc_sparse(af_array* C, af_array elmA,
 		//z = A*p
 		//af_matmul(&z, A, p, AF_MAT_NONE, AF_MAT_NONE);
 		AFire::sparse_mat_vec_mul(&z, elmA, colA, rowA, p);
+
+		//a = (r'*p)/(p'*z)
+		af_matmul(&rtxp, r, p, AF_MAT_TRANS, AF_MAT_NONE);
+		af_matmul(&ptxz, p, z, AF_MAT_TRANS, AF_MAT_NONE);
+		af_div(&a, rtxp, ptxz, false);
+
+		//x += a.*p
+		af_mul(&axp, a, p, true);
+		af_copy_array(&x0, x);
+		af_add(&x, x0, axp, false);
+
+		I++;
+	}
+
+	//copiando el resultado en el argumento de salida
+	af_copy_array(C, x);
+
+	//liberando objetos af_array usados
+	af_release_array(zero);
+	af_release_array(Ax0);
+	af_release_array(rtxp);
+	af_release_array(ptxz);
+	af_release_array(axp);
+	af_release_array(B);
+	af_release_array(axz);
+	af_release_array(copyr);
+	af_release_array(rtxz);
+	af_release_array(rsp);
+	af_release_array(Bxp);
+	af_release_array(x0);
+	af_release_array(r);
+	af_release_array(p);
+	af_release_array(z);
+	af_release_array(a);
+	af_release_array(x);
+}
+
+void AFire::SELgc_sparse_sks(af_array* C, af_array elmA,
+	af_array idxA, af_array b, double Ierr) {
+
+	dim_t _order[AF_MAX_DIMS];
+	af_get_dims(&_order[0], &_order[1], &_order[2],
+		&_order[3], idxA);
+	size_t order = _order[0];
+
+	af_dtype typef;
+	af_get_type(&typef, elmA);
+
+	double normr;
+	//af_array de ayuda
+	af_array zero;
+	dim_t d_order[] = { 1 };
+	af_constant(&zero, 0, 1, d_order, typef);
+	af_array Ax0;
+	af_array rtxp;
+	af_array ptxz;
+	af_array axp;
+	af_array B;
+	af_array axz;
+	af_array copyr;
+	af_array rtxz;
+	af_array rsp;
+	af_array Bxp;
+
+	//x0=b
+	af_array x0;
+	af_copy_array(&x0, b);
+
+	//r=b-A*x0
+	af_array r;
+	//af_matmul(&Ax0, A, x0, AF_MAT_NONE, AF_MAT_NONE);
+	AFire::sparse_sks_mat_vec_mul(&Ax0, elmA, idxA, x0);
+	af_sub(&r, b, Ax0, false);
+
+	//p = r
+	af_array p;
+	af_copy_array(&p, r);
+
+	//z=A*p
+	af_array z;
+	//af_matmul(&z, A, p, AF_MAT_NONE, AF_MAT_NONE);
+	AFire::sparse_sks_mat_vec_mul(&z, elmA, idxA, p);
+
+	//a = (r'*p)/(p'*z)
+	af_array a;
+	af_matmul(&rtxp, r, p, AF_MAT_TRANS, AF_MAT_NONE);
+	af_matmul(&ptxz, p, z, AF_MAT_TRANS, AF_MAT_NONE);
+	af_div(&a, rtxp, ptxz, false);
+
+	//x = x0 + a.*p
+	af_array x;
+	af_mul(&axp, a, p, true);
+	af_add(&x, x0, axp, false);
+
+	int contin;
+	int I = 0;
+	for (int i = 0; i < order; i++)
+	{
+		//r -= a.*z
+		af_copy_array(&copyr, r);
+		af_mul(&axz, a, z, true);
+		af_sub(&r, copyr, axz, false);
+
+		af_norm(&normr, r, AF_NORM_EUCLID, 1, 1);
+		if (normr <= Ierr)
+			break;
+
+		//B = -(r'*z)/(p'*z)
+		af_matmul(&rtxz, r, z, AF_MAT_TRANS, AF_MAT_NONE);
+		af_matmul(&ptxz, p, z, AF_MAT_TRANS, AF_MAT_NONE);
+		af_div(&rsp, rtxz, ptxz, false);
+		af_sub(&B, zero, rsp, false);
+
+		//p = r + B.*p
+		af_mul(&Bxp, B, p, true);
+		af_add(&p, r, Bxp, false);
+
+		//z = A*p
+		//af_matmul(&z, A, p, AF_MAT_NONE, AF_MAT_NONE);
+		AFire::sparse_sks_mat_vec_mul(&z, elmA, idxA, p);
 
 		//a = (r'*p)/(p'*z)
 		af_matmul(&rtxp, r, p, AF_MAT_TRANS, AF_MAT_NONE);

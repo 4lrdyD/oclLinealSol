@@ -237,22 +237,15 @@ int main_sparse_c()//sparse_c
 	array colL(7, 1, _colL);
 	array rowL(16, 1, _rowL);
 
-	af_array fac;
-	AFire::fac_ldlt_c(&fac, M.get());
-	af_print_array(fac);
+	af_array mul;
+	af_matmul(&mul, M.get(),b.get(),AF_MAT_NONE,
+		AF_MAT_NONE);
+	af_print_array(mul);
 
-	af_array sol;
-	AFire::SELldlt_c(&sol, M.get(), b.get());
-	//af_print_array(sol);
-
-	AFire::fac_sparse_ldlt_c(elmA.get(), colA.get(),
-		rowA.get(), elmL.get(), colL.get(), rowL.get());
-	af_print(elmL);
-
-	af_release_array(sol);
-	AFire::SELldlt_sparse_c(&sol, elmL.get(), colL.get(),
-		rowL.get(), b.get());
-	//af_print_array(sol);
+	af_release_array(mul);
+	AFire::sparse_mat_vec_mul(&mul, elmA.get(),
+		colA.get(), rowA.get(), b.get());
+	af_print_array(mul);
 
 	return 0;
 }
@@ -329,17 +322,10 @@ int main()//sparse_sks
 	array elmA(25, 1, _elmA);
 	array idxA(7, 1, _idxA);*/
 
-	af_array sol;
-	AFire::SELchol_c(&sol, M.get(), b.get());
-	af_print_array(sol);
-
-	AFire::fac_sparse_chol_sks(elmA.get(), idxA.get());
-	af_print(elmA);
-	
-	af_release_array(sol);
-	AFire::SELchol_sparse_sks(&sol, elmA.get(),
-		idxA.get(), b.get());
-	af_print_array(sol);
+	af_array mul;
+	AFire::SELgc_sparse_sks(&mul, elmA.get(),
+		idxA.get(), b.get(),1e-6);
+	af_print_array(mul);
 	
 
 	return 0;

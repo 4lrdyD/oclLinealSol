@@ -1,5 +1,5 @@
 //==========================================
-//revisión 0.7.2 02-07-2019, 00:00, VS 2017
+//revisión 0.7.3 02-07-2019, 23:30, VS 2017
 //==========================================
 #pragma once
 #ifdef HEADER_EXPORTS
@@ -49,13 +49,19 @@ public:
 		char * get_env_path(const char *);
 	static HEADER_API
 		char * kernel_src(const char*, const char*);
-
 	static HEADER_API
 		/*multiplicación de matriz simétrica por vector,
 		la matriz debe ser ingresada en formato disperso
 		ver función fac_sparse_chol_c */
 		void sparse_mat_vec_mul(af_array* dC, af_array elmA,
 			af_array colA, af_array rowA, af_array dB);
+	static HEADER_API
+		/*multiplicación de matriz simétrica por vector,
+		la matriz debe ser ingresada en formato SKS 
+		(Skyline Storage)
+		ver función fac_sparse_chol_sks */
+		void sparse_sks_mat_vec_mul(af_array* dC,
+			af_array elmA, af_array idxA, af_array dB);
 	//--------------
 	//Algebra lineal
 	//--------------
@@ -100,12 +106,25 @@ public:
 		usando el método de gradientes conjugados
 
 		A debe ser introducido como argumento en su forma
-		dispersa (ver función fac_sparse_chol), siendo la
+		dispersa (ver función fac_sparse_chol_c), siendo la
 		forma densa una matriz simétrica y definida 
 		positiva*/
 	void SELgc_sparse(af_array* C, af_array elmA,
 		af_array colA, af_array rowA, af_array b,
 		double Ierr);
+	static HEADER_API
+		/*Solución del sistema de ecuaciones lineales
+		de la forma Ax=b para matrices en forma
+		dispersa (SKS), usando el método de gradientes
+		conjugados
+
+		A debe ser introducido como argumento en su forma
+		dispersa (ver función fac_sparse_chol_sks),
+		siendo la forma densa una matriz simétrica y
+		definida positiva*/
+		void SELgc_sparse_sks(af_array* C,
+			af_array elmA, af_array idxA, af_array b,
+			double Ierr);
 	//--------
 	//Cholesky
 	//--------

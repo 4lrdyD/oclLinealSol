@@ -8,6 +8,7 @@ helpk=?helpk@AFire@@SAPEADPEBD@Z
 env_pth=?get_env_path@AFire@@SAPEADPEBD@Z 
 test_1=?test_1@AFire@@SAXAEAVarray@af@@0@Z 
 sparse_mat_vec_mul=?sparse_mat_vec_mul@AFire@@SAXPEAPEAXPEAX111@Z
+sparse_sks_mat_vec_mul=?sparse_sks_mat_vec_mul@AFire@@SAXPEAPEAXPEAX11@Z 
 
 SELgj_f=?SELgj_f@AFire@@SAXPEAPEAXPEAX1@Z
 SELgj_c=?SELgj_c@AFire@@SAXPEAPEAXPEAX1@Z 
@@ -15,6 +16,7 @@ SELgj_f2d=?SELgj_f2d@AFire@@SAXPEAPEAXPEAX1@Z
 SELgj_c2d=?SELgj_c2d@AFire@@SAXPEAPEAXPEAX1@Z 
 SEL_gc=?SEL_gc@AFire@@SAXPEAPEAXPEAX1N@Z
 SELgc_sparse=?SELgc_sparse@AFire@@SAXPEAPEAXPEAX111N@Z
+SELgc_sparse_sks=?SELgc_sparse_sks@AFire@@SAXPEAPEAXPEAX11N@Z
 
 fac_chol_c=?fac_chol_c@AFire@@SAXPEAPEAXPEAX@Z 
 SELchol_c=?SELchol_c@AFire@@SAXPEAPEAXPEAX1@Z 
