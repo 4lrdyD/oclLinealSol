@@ -1,6 +1,6 @@
 /*
 =========================================
-revisión 0.9.04 09-04-2019, 17:15 VS 2017
+revisión 0.9.05 18-07-2019, 22:40 VS 2017
 =========================================
 */
 /* Solución de un sistema de ecuaciones, usando 
@@ -125,19 +125,17 @@ de cada fila sea cero luego de realizada la operación,
 realizarán las operaciones, si es para la fila completa
 el valor correspondiente de "fcol" es cero, del mismo modo
 debe especificarse una fila (frow) para obviar las filas
-anteriores en las operaciones, para todas las filas el
+anteriores en las operaciones, para todas las filas este
 valor es cero.
 
 Se asume A como una matriz de orden wAxhA
-también se asume que la cantidad de bloques en el kernel
-que llamará esta función es suficiente
 
 se asume la matriz como ordenada por columnas
 */
 void Gss_Jrd_c_sp(__global float* A, int wA, int hA,
 	int row, int col, int frow, int fcol)
 {
-	// fcol + índice local de grupo
+	// fcol + índice de grupo
 	int bx = fcol + get_group_id(0);
 
 	//índice del primer elemento en una columna
@@ -146,13 +144,13 @@ void Gss_Jrd_c_sp(__global float* A, int wA, int hA,
 	//factor de multiplicación
 	float fm;
 
-	//columna base, la que se vuelve cero, excepto el
+	//columna base, la que se vuelve cero, excepto su
 	//valor en la posición frow
 	__global float* Colb = A + hA * col;
     
-
-	//en este caso, cada grupo se encargará de las operaciones sobre todos los
-	//elementos de una columna
+	//en este caso, cada grupo se encargará de las 
+	//operaciones sobre todos los elementos de una
+	//columna
 	float keyEl = Colb[row];
 
 	for (int x = tx; x < hA; x += get_local_size(0)) {
@@ -790,7 +788,8 @@ Fig.9. Pág.6
 
 //GPU lock - free synchronization function
 void __gpu_sync(int goalVal,
-	__global volatile int * Arrayin, __global volatile int * Arrayout)
+	__global volatile int * Arrayin,
+	__global volatile int * Arrayout)
 {
 	//thread ID in a block
 	int tid_in_block = get_local_id(0)*get_local_size(1)
@@ -802,25 +801,21 @@ void __gpu_sync(int goalVal,
 		+ get_group_id(1);
 	
 	//only thread 0 is used for synchronization
-	if (tid_in_block == 0){
+	if (tid_in_block == 0)
 		Arrayin[bid] = goalVal; 
-	}
 
-	if (bid == 0){
+	if (bid == 1){
 		if (tid_in_block < nBlockNum){
 			while (Arrayin[tid_in_block] != goalVal) {
-				//atomicCAS();
 			}
 		}
 		barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
 
-		if (tid_in_block < nBlockNum) {
+		if (tid_in_block < nBlockNum)
 			Arrayout[tid_in_block] = goalVal;
-		}
 	}
 	if (tid_in_block == 0) {
 		while (Arrayout[bid] != goalVal) {
-			//atomicCAS();
 		}
 	}
 	barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
@@ -841,6 +836,14 @@ void __gpu_sync1(int goalVal,
 	//thread ID in a block
 	int tid_in_block = get_local_id(0)*get_local_size(1)
 		+ get_local_id(1);
+
+	//en el artículo
+	//On the Robust Mapping of Dynamic Programming
+	//onto a Graphics Processing Unit
+	//de los mismos autores, sugieren el mismo código
+	//de sincronización, pero añaden otra linea, la cual
+	//en OpenCL sería:
+	//mem_fence(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE);
 
 	//only thread 0 is used for synchronization
 	if (tid_in_block == 0) {
@@ -967,4 +970,78 @@ __kernel void fenceTest_sp(__global float *c,
 	}
 	if (tx == 0)
 		c[ty] = ctr[1];
+}
+
+__kernel void
+global_sync_test_sp(__global float* A, int hA, int row)
+{
+	//la iteración se realizará en el host, en aquí
+	//solo se relizara una operación sobre cada columna
+	//encargada a cada hilo
+	Gss_Jrd_c_sp(A, hA + 1, hA, row, row, 0, row + 1);
+}
+
+__kernel void
+global_sync_test(__global double* A, int hA,
+	__global volatile int* syncIn,
+	__global volatile int* syncOut, int i)
+{
+	//la iteración se realizará en el host, en aquí
+	//solo se relizara una operación sobre cada columna
+	//encargada a cada hilo
+	/*if (j == 4) {
+		for (int k = get_local_id(0); k < hA;
+			k += get_local_size(0)) {
+			for (int p = get_group_id(0); p < hA + 1;
+				p += get_num_groups(0)) {
+				A[p*hA + k] = 1;
+			}
+		}
+	}*/
+	int goalVal = 0;
+	//for (int i = 0; i < hA; i++) {
+		goalVal += get_num_groups(0);
+
+		// fcol + índice local de grupo
+		int bx = get_group_id(0);
+
+		//índice del primer elemento en una columna
+		int tx = get_local_id(0);
+
+		//factor de multiplicación
+		double fm;
+
+		//columna base, la que se vuelve cero, excepto el
+		//valor en la posición frow
+		__global double* Colb = A + hA * i;
+
+
+		//en este caso, cada grupo se encargará de las operaciones sobre todos los
+		//elementos de una columna
+		double keyEl = Colb[i];
+
+		for (int x = tx; x < hA; x += get_local_size(0)) {
+
+			if (x != i && keyEl != 0) {
+
+				fm = Colb[x] / keyEl;
+				for (int y = bx+i+1; y < hA+1; y += get_num_groups(0)) {
+
+					__global double* ColEl = A + y * hA;
+					ColEl[x] -= fm * ColEl[i];
+				}
+				/*for (int y = bx; y < hA + 1; y += get_num_groups(0)) {
+
+					if (y > i) {
+						__global double* ColEl = A + y * hA;
+						ColEl[x] -= fm * ColEl[i];
+					}
+				}*/
+			}
+		}
+		//Gss_Jrd_c(A, hA + 1, hA, i, i, 0, i + 1);
+		//__gpu_sync(goalVal, syncIn, syncOut);
+		//__gpu_sync1(goalVal, syncIn);
+		//barrier(CLK_GLOBAL_MEM_FENCE);
+	//}
 }

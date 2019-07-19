@@ -1,5 +1,5 @@
 //==========================================
-//revisión 0.9.4 02-07-2019, 23:30 VS 2017
+//revisión 0.9.5 18-07-2019, 22:40 VS 2017
 //==========================================
 
 #include "Header.h"
@@ -842,11 +842,14 @@ void AFire::SELgj_c(af_array* dC, af_array dA, af_array dB) {
 
 	size_t program_length = strlen(GJordan_source);
 
-
 	//creando el programa, construyendo el ejecutable y extrayendo el punto de entrada
 	// para el Kernel
-	cl_program program = clCreateProgramWithSource(af_context, 1, (const char **)&GJordan_source, &program_length, &status);
-	status = clBuildProgram(program, 1, &af_device_id, NULL, NULL, NULL);
+	cl_program program =
+		clCreateProgramWithSource(af_context, 1,
+		(const char **)&GJordan_source, &program_length,
+			&status);
+	status = clBuildProgram(program, 1, &af_device_id,
+		NULL, NULL, NULL);
 
 	char* kernelName;
 	if (typef == f64)
@@ -3588,4 +3591,147 @@ void AFire::test_2(af_array dA)
 	af_unlock_array(zeros);
 
 	af_release_array(zeros);
+}
+
+void AFire::global_sync_test(af_array* dC, af_array dA,
+	af_array dB) {
+	//Obteniendo el dispositivo, contexto y la cola usada por ArrayFire
+	//cl_context af_context;
+	static cl_context af_context = afcl::getContext();
+	static cl_device_id af_device_id = afcl::getDeviceId();
+	static cl_command_queue af_queue = afcl::getQueue();
+
+	//obteniendo el número de multiprocesadores, necesario
+	//para determinar el número de bloques para los kernels,
+	//y hacer posible el uso de las funciones de sincronización
+	//ver artículo:
+	//Inter-Block GPU Communication via Fast Barrier Synchronization
+	//Shucai Xiao and Wu-chun Feng
+	//Department of Computer Science Virginia Tech
+	//2009/9/19
+	//Pág.5
+	cl_uint compute_units;
+	clGetDeviceInfo(af_device_id,
+		CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint),
+		&compute_units, NULL);
+	compute_units = BLOCK_SIZE;
+	//acoplando A con B
+	af_array Ac;
+	af_join(&Ac, 1, dA, dB);
+
+	//vectores de sincronización
+	const dim_t nBlks[] = { compute_units };
+	af_array syncIn;
+	af_array syncOut;
+	af_constant(&syncIn, 0, 1, nBlks, s32);
+	af_constant(&syncOut, 0, 1, nBlks, s32);
+
+	dim_t _order[AF_MAX_DIMS];
+	af_get_dims(&_order[0], &_order[1], &_order[2], &_order[3], dA);
+	size_t order = _order[0];
+
+	size_t localWorkSize = BLOCK_SIZE * BLOCK_SIZE;
+	size_t globalWorkSize = localWorkSize * compute_units;
+
+	int status = CL_SUCCESS;
+
+	af_dtype typef;
+	af_get_type(&typef, dA);
+
+	int msize = 0;
+	if (typef == f64)
+		msize = sizeof(double);
+	else if (typef == f32)
+		msize = sizeof(float);
+	else;
+
+	//obteniendo las referencias cl_mem de los objetos af::array
+	cl_mem *d_A = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_WRITE, msize * order*(order + 1),
+		NULL, &status);
+	af_get_device_ptr((void**)d_A, Ac);
+
+	cl_mem *d_syncIn = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_WRITE, sizeof(int)*compute_units,
+		NULL, &status);
+	af_get_device_ptr((void**)d_syncIn, syncIn);
+
+	cl_mem *d_syncOut = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_WRITE, sizeof(int)*compute_units,
+		NULL, &status);
+	af_get_device_ptr((void**)d_syncOut, syncOut);
+
+	size_t program_length = strlen(GJordan_source);
+
+	//creando el programa, construyendo el ejecutable y extrayendo el punto de entrada
+	// para el Kernel
+	cl_program program =
+		clCreateProgramWithSource(af_context, 1,
+		(const char **)&GJordan_source, &program_length,
+			&status);
+	status = clBuildProgram(program, 1, &af_device_id,
+		NULL, NULL, NULL);
+
+	char* kernelName;
+	if (typef == f64)
+		kernelName = "global_sync_test";
+	else if (typef == f32)
+		kernelName = "global_sync_test_sp";
+	else;
+	cl_kernel kernel = clCreateKernel(program, kernelName,
+		&status);
+
+	// estableciendo los argumentos
+	int i = 0;
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_A);
+	clSetKernelArg(kernel, i++, sizeof(cl_int), &order);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_syncIn);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_syncOut);
+
+	int device;
+	af_get_device(&device);
+
+	for (int j = 0; j < order; j++)
+	{
+		clSetKernelArg(kernel, 4, sizeof(cl_int), &j);
+		//ejecutando el Kernel
+		clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+			&globalWorkSize, &localWorkSize, 0, NULL,
+			NULL);
+		//af_sync(device);
+	}
+
+	//devolviendo el control de memoria af::array a ArrayFire 
+	af_unlock_array(Ac);
+
+	//hasta aqui Ac contiene en su última columna
+	//y en su diagonal principal, los valores 
+	//finales que deben dividirse para obtener
+	//la solución final
+
+	//extrayendo la última columna
+	af_array Au;
+	af_index_t* indexers = 0;
+	af_create_indexers(&indexers);
+	af_set_seq_param_indexer(indexers, 0, order - 1, 1,
+		0, false);
+	af_set_seq_param_indexer(indexers, order, order, 1,
+		1, false);
+	af_index_gen(&Au, Ac, 2, indexers);
+
+	//extrayendo la diagonal
+	af_array Ad;
+	af_diag_extract(&Ad, Ac, 0);
+
+	//dividiendo
+	af_release_array(Ac);
+	af_div(&Ac, Au, Ad, false);
+
+	// copiando el resultado en dC
+	af_copy_array(dC, Ac);
+
+	af_release_array(Au);
+	af_release_array(Ad);
+	af_release_array(Ac);
+	af_release_indexers(indexers);
 }

@@ -1,5 +1,5 @@
 //==========================================
-//revisión 0.7.3 02-07-2019, 23:30, VS 2017
+//revisión 0.7.4 18-07-2019, 22:40, VS 2017
 //==========================================
 #pragma once
 #ifdef HEADER_EXPORTS
@@ -57,14 +57,17 @@ public:
 			af_array colA, af_array rowA, af_array dB);
 	static HEADER_API
 		/*multiplicación de matriz simétrica por vector,
-		la matriz debe ser ingresada en formato SKS 
+		la matriz debe ser ingresada en formato SKS
 		(Skyline Storage)
 		ver función fac_sparse_chol_sks */
 		void sparse_sks_mat_vec_mul(af_array* dC,
 			af_array elmA, af_array idxA, af_array dB);
-	//--------------
-	//Algebra lineal
-	//--------------
+	//-----------------
+	//2. Algebra lineal
+	//-----------------
+	//----------------
+	//2.1 Gauss-Jordan
+	//----------------
 	/**
 	solución de un sistema de ecuaciones lineales de la forma:
 	Ax=B
@@ -73,9 +76,9 @@ public:
 	A: Matriz cuadrada de orden n
 	B: Vector de tamaño n
 	*/
-	static HEADER_API 
+	static HEADER_API
 		void SELgj_f(af_array*, af_array, af_array);
-	static HEADER_API 
+	static HEADER_API
 		/*Solución de un sistema de ecuaciones de la
 		forma Ax=b, usando el método de Gauss-Jordan
 		x: vector de salida que contendrá la solución
@@ -83,35 +86,32 @@ public:
 		b: Vector de constantes del sistema
 		*/
 		void SELgj_c(af_array* x, af_array A, af_array b);
-	static HEADER_API 
-		void SELgj_fshr(af_array*, af_array, af_array);
-	static HEADER_API 
-		void SELgj_f2d(af_array*, af_array, af_array);
-	static HEADER_API 
-		void SELgj_c2d(af_array*, af_array, af_array);
 	static HEADER_API
-		void prueba_shr(af_array*, af_array, af_array);
-	static HEADER_API 
-		void fenceTest_sp(af::array &, af::array &);
-	//---------------------
-	//gradientes conjugados
-	//---------------------
+		void SELgj_fshr(af_array*, af_array, af_array);
+	static HEADER_API
+		void SELgj_f2d(af_array*, af_array, af_array);
+	static HEADER_API
+		void SELgj_c2d(af_array*, af_array, af_array);
+
+	//-------------------------
+	//2.2 gradientes conjugados
+	//-------------------------
 	static HEADER_API
 		void SEL_gc(af_array*, af_array, af_array, double);
 	static HEADER_API
 		af::array SEL_gc(af::array, af::array, double);
-   	static HEADER_API
+	static HEADER_API
 		/*Solución del sistema de ecuaciones lineales de la
 		forma Ax=b para matrices en forma dispersa,
 		usando el método de gradientes conjugados
 
 		A debe ser introducido como argumento en su forma
 		dispersa (ver función fac_sparse_chol_c), siendo la
-		forma densa una matriz simétrica y definida 
+		forma densa una matriz simétrica y definida
 		positiva*/
-	void SELgc_sparse(af_array* C, af_array elmA,
-		af_array colA, af_array rowA, af_array b,
-		double Ierr);
+		void SELgc_sparse(af_array* C, af_array elmA,
+			af_array colA, af_array rowA, af_array b,
+			double Ierr);
 	static HEADER_API
 		/*Solución del sistema de ecuaciones lineales
 		de la forma Ax=b para matrices en forma
@@ -125,14 +125,14 @@ public:
 		void SELgc_sparse_sks(af_array* C,
 			af_array elmA, af_array idxA, af_array b,
 			double Ierr);
-	//--------
-	//Cholesky
-	//--------
+	//------------
+	//2.3 Cholesky
+	//------------
 	static HEADER_API
-		/*Solución de un sistema de ecuaciones de la 
+		/*Solución de un sistema de ecuaciones de la
 		forma Ax=b, usando la factorización de cholesky
 		x: vector de salida que contendrá la solución
-		A: matriz simetrica definida positiva 
+		A: matriz simetrica definida positiva
 		b: Vector de constantes del sistema
 		*/
 		void SELchol_c(af_array* x, af_array A, af_array b);
@@ -154,11 +154,11 @@ public:
 		*elmA: Vector de elementos distintos de cero, guardados
 		columna a columna.
 
-		*colA: Vector de índices, donde cada elemento indica la 
-		ubicación en elmA del primer elemento distinto de cero en 
+		*colA: Vector de índices, donde cada elemento indica la
+		ubicación en elmA del primer elemento distinto de cero en
 		cada columna de A
 
-		*rowA: Vector de índices en donde se guardan los índices 
+		*rowA: Vector de índices en donde se guardan los índices
 		de fila en A de los elementos en elmA expetuando los elementos
 		que coincidan con la diagonal
 
@@ -187,7 +187,7 @@ public:
 		rowA=[	1
 				2
 				3]
-	
+
 
 		En las funciones L es otra matriz con el mismo formato
 		donde se almacenará los elementos de L de la factorización
@@ -195,10 +195,10 @@ public:
 		todos los elementos distintos de cero de L, colL y rowL
 		deben estar ya con sus valores finales, estos deben
 		obtenerse mediante una factorización simbólica*/
-	void fac_sparse_chol_c(af_array elmA, af_array colIdxA,
-		af_array rowIdxA, af_array elmL, af_array colIdxL,
-		af_array rowIdxL);
-	
+		void fac_sparse_chol_c(af_array elmA, af_array colIdxA,
+			af_array rowIdxA, af_array elmL, af_array colIdxL,
+			af_array rowIdxL);
+
 	static HEADER_API
 		/*Solución del sistema de ecuaciones lineales de la
 		forma Ax=b para matrices en forma dispersa,
@@ -218,14 +218,14 @@ public:
 
 	static HEADER_API
 		/*Solución del sistema Ax=b, teniendo el factor
-		L en forma dispersa obtenido de la factorización 
+		L en forma dispersa obtenido de la factorización
 		de cholesky
 
 		L debe ser introducido como argumento en su forma
 		dispersa (ver función fac_sparse_chol)*/
-	void SELchol_sparse_c(af_array* dC, af_array elmL,
-		af_array colL, af_array rowL, af_array dB);
-	
+		void SELchol_sparse_c(af_array* dC, af_array elmL,
+			af_array colL, af_array rowL, af_array dB);
+
 	static HEADER_API
 		/*Implace
 		factorización de cholesky de una matriz
@@ -271,7 +271,7 @@ public:
 				4
 				4
 				9
-				0	
+				0
 				5
 				2
 				0
@@ -321,9 +321,9 @@ public:
 		almacenada en formato SKS*/
 		void SELchol_sparse_sks(af_array* dC, af_array elmL,
 			af_array idxL, af_array dB);
-	//----
-	//LDLT
-	//----
+	//--------
+	//2.4 LDLT
+	//--------
 	static HEADER_API
 		/*Solución de un sistema de ecuaciones de la
 		forma Ax=b, usando la factorización LDLT
@@ -344,22 +344,22 @@ public:
 	static HEADER_API
 		/*factorización LDLt aplicado a matrices
 		dispersas y simétricas:
-		
-		para ver el formato de una matriz almacenada en 
-		forma dispersa y simétrica ver fac_sparse_chol_c 
-		
+
+		para ver el formato de una matriz almacenada en
+		forma dispersa y simétrica ver fac_sparse_chol_c
+
 		En las funciones L es otra matriz con el mismo formato
 		donde se almacenará los elementos de L de la factorización
 		LDLt, elmL debe ser del tamaño adecuado para guardar
 		todos los elementos distintos de cero de L, colL y rowL
 		deben estar ya con sus valores finales, estos deben
-		obtenerse mediante una factorización simbólica, 
+		obtenerse mediante una factorización simbólica,
 		tomar en cuenta que la factoriación simbólica LDLt
-		es la misma que la factorización de cholesky 
+		es la misma que la factorización de cholesky
 		simbólica*/
-	void fac_sparse_ldlt_c(af_array elmA, af_array colA,
-		af_array rowA, af_array elmL, af_array colL,
-		af_array rowL);
+		void fac_sparse_ldlt_c(af_array elmA, af_array colA,
+			af_array rowA, af_array elmL, af_array colL,
+			af_array rowL);
 
 	static HEADER_API
 		/*Solución del sistema de ecuaciones lineales de la
@@ -387,28 +387,37 @@ public:
 		dispersa (ver función fac_sparse_chol)*/
 		void SELldlt_sparse_c(af_array* dC, af_array elmL,
 			af_array colL, af_array rowL, af_array dB);
-	
+
 	static HEADER_API
 		/*Implace
-		factorización LDLt de una matriz 
+		factorización LDLt de una matriz
 		dispersa y simétrica, almacenada en formato
 		SKS (Skyline Storage)
 		ver ayuda de la función fac_sparse_chol_sks
-        */
-	void fac_sparse_ldlt_sks(af_array elmA,
-		af_array idxA);
+		*/
+		void fac_sparse_ldlt_sks(af_array elmA,
+			af_array idxA);
 
 	static HEADER_API
 		/*Solución del sistema Ax=b, para una
 		matriz simétrica usando la factorización
-		LDLt, teniendo la factorización de A, 
+		LDLt, teniendo la factorización de A,
 		almacenada en formato SKS*/
-	void SELldlt_sparse_sks(af_array* dC, af_array elmL,
-		af_array idxL, af_array dB);
-	//-------------------
-	//funciones de prueba
-	//-------------------
+		void SELldlt_sparse_sks(af_array* dC, af_array elmL,
+			af_array idxL, af_array dB);
+	//---------------------------
+	//3 funciones de prueba y otros
+	//---------------------------
 	static HEADER_API void test_1(af::array &, af::array &);
 	static HEADER_API void test_2(af_array);
+	static HEADER_API
+		void prueba_shr(af_array*, af_array, af_array);
+	static HEADER_API
+		void fenceTest_sp(af::array &, af::array &);
+	static HEADER_API double SELgj_c_test(af_array,
+		af_array);
+	static HEADER_API
+		void global_sync_test(af_array*, af_array,
+			af_array);
 };
 

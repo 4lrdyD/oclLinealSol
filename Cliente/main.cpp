@@ -250,16 +250,16 @@ int main_sparse_c()//sparse_c
 	return 0;
 }
 
-int main()//sparse_sks
+int main_sparse_sks()//sparse_sks
 {
-	double _M[] = { 5,1,-2,0,1,2,0,0,-2,0,4,1,0,0,1,3 };
+	/*double _M[] = { 5,1,-2,0,1,2,0,0,-2,0,4,1,0,0,1,3 };
 	double _b[] = { 1,5,14,15 };
 	array M(4, 4, _M);
 	array b(4, 1, _b);
 	af_print(M);
-	af_print(b);
+	af_print(b);*/
 
-	/*double _M[] = { 3, 1, 5, 1, 0, 3, 0,
+	double _M[] = { 3, 1, 5, 1, 0, 3, 0,
 		1, 1, 0, 5, 0, 0, 0,
 		5, 0, 2, 0, 4, 0, 0,
 		1, 5, 0, 9, 0, 0, 6,
@@ -278,15 +278,15 @@ int main()//sparse_sks
 		array M(7, 7, _M);
 		array b(7, 1, _b);
 		af_print(M);
-		af_print(b);*/
+		af_print(b);
 
-	double _elmA[] = { 5,1,-2,2,0,4,1,3 };
+	/*double _elmA[] = { 5,1,-2,2,0,4,1,3 };
 	int _idxA[] = { 0,3,5,7 };
 
 	array elmA(8, 1, _elmA);
-	array idxA(4, 1, _idxA);
+	array idxA(4, 1, _idxA);*/
 
-/*	double _elmA[] = { 3.0,
+	double _elmA[] = { 3.0,
   1.0,
   5.0,
   1.0,
@@ -320,91 +320,57 @@ int main()//sparse_sks
  24};
 
 	array elmA(25, 1, _elmA);
-	array idxA(7, 1, _idxA);*/
+	array idxA(7, 1, _idxA);
 
 	af_array mul;
 	AFire::SELgc_sparse_sks(&mul, elmA.get(),
 		idxA.get(), b.get(),1e-6);
 	af_print_array(mul);
 	
+	af_release_array(mul);
+	AFire::SELgj_c(&mul, M.get(), b.get());
+	af_print_array(mul);
+
+	af_release_array(mul);
+	AFire::global_sync_test(&mul, M.get(), b.get());
+	af_print_array(mul);
 
 	return 0;
 }
 
-int main3()
+int main()
 {
-	const int size = 7;
-	int mat[size][size] = { 3, 1, 5, 1, 0, 3, 0,
-		1, 1, 0, 5, 0, 0, 0,
-		5, 0, 2, 0, 4, 0, 0,
-		1, 5, 0, 9, 0, 0, 6,
-		0, 0, 4, 0, 2, 0, 11,
-		3, 0, 0, 0, 0, 5, 0,
-		0, 0, 0, 6, 11, 0, 1 };
+	double _M[] = { 4.,	4.,	4.,	2.,	6.,	7.,	2.,
+5.,	2.,	4.,	6.,	2.,	3.,	4.,
+5.,	6.,	2.,	7.,	8.,	2.,	6.,
+10.,	3.,	1.,	7.,	9.,	1.,	4.,
+10.,	5.,	5.,	3.,	2.,	9.,	3.,
+4.,	9.,	7.,	8.,	5.,	2.,	7.,
+7.,	8.,	5.,	6.,	2.,	8.,	2.
+	};
 
+	double _b[] = { 118.,
+101.,
+145.,
+126.,
+132.,
+161.,
+134.
+	};
 
-	int x[size] = { 9,
-			5,
-			14,
-			15,
-			12,
-			10,
-			13 };
+	array __M(7, 7, _M);
+	array M = transpose(__M);
+	array b(7, 1, _b);
+	af_print(M);
+	af_print(b);
 
-	int diagonal[size];   //The diagonal vector, also the final resultant vector
-	for (int i = 0; i < size; i++)
-		diagonal[i] = mat[i][i];
+	af_array mul;
+	AFire::SELgj_c(&mul, M.get(), b.get());
+	af_print_array(mul);
 
-	const int no_elements = (size*size - size) / 2;  //no_elements is the max number of elements that can be there in the lower triangule of the 2-D array
-	int mat_lower[no_elements];   //create mat_lower vector of apt size
+	af_release_array(mul);
+	AFire::global_sync_test(&mul, M.get(), b.get());
+	af_print_array(mul);
 
-	int indexes[size], i_index = 0;   //i_index is index into indexes array
-
-	int t_index = 0; //index into the mat_lower array, points to the next available index
-	// The for loop below creates the skyline form of 2-D matrix
-
-	for (int i = 0; i < size; i++)   //for each row
-	{
-		int j = 0;             //starting from first column
-		while (mat[i][j] == 0)  //skipping the zero elements in the beginning
-			j++;
-		for (; j < i; j++)         //store the rest of the row elements(belonging to skyline) in mat_lower
-		{
-			mat_lower[t_index] = mat[i][j];
-			t_index++;
-		}
-		indexes[i_index] = t_index;  //store value of t_index in indexes array
-		i_index++;
-	}
-
-	std::cout << "Diagonal :";
-	for (int i = 0; i < size; i++)
-		std::cout << diagonal[i] << " ";
-	std::cout << "\n";
-	std::cout << "Mat_lower :";
-	for (int i = 0; i < t_index; i++)
-		std::cout << mat_lower[i] << " ";
-	std::cout << "\n";
-	std::cout << "Indexes :";
-	for (int i = 0; i < i_index; i++)
-		std::cout << indexes[i] << " ";
-	std::cout << "\n";
-	//Next two for loops do the multiply operation on skyline form of 2-D array and the vector x.
-	for (int i = 0; i < size; i++)
-		diagonal[i] *= x[i];
-
-	int nex, ik, jcol;
-	for (int k = 1; k < size; k++)
-	{
-		nex = indexes[k] - indexes[k - 1];
-
-		for (int i = indexes[k - 1], j = k - nex; i < indexes[k]; i++, j++) // for the lower triangular part
-			diagonal[k] += x[j] * mat_lower[i];
-
-		for (int i = indexes[k - 1], j = k - nex; i < indexes[k]; i++, j++)  //for the upper triangular part
-			diagonal[j] += mat_lower[i] * x[k];
-	}
-	std::cout << "\nResult :";
-	for (int i = 0; i < size; i++)
-		std::cout << diagonal[i] << "\n";   //result
+	return 0;
 }
