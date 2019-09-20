@@ -1,6 +1,6 @@
 /*
 =========================================
-revisión 0.0.2 02-07-2019, 23:30 VS 2017
+revisión 0.0.3 19-09-2019, 23:25 VS 2017
 =========================================
 */
 /* Solución de un sistema de ecuaciones, usando 
@@ -652,7 +652,7 @@ void sparse_mat_vec_mul1(__global double* elmA,
 		int baseId = dId - row;
 
 		//valor donde se guardará una suma parcial
-		double sum = 0.0f;
+		double sum = 0.0;
 
 		for (int x = tx; x < nEl - 1; x += get_local_size(0)) {
 			int cId = rowA[baseId + x];
@@ -764,7 +764,7 @@ void sparse_mat_vec_mul1_sks(__global double* elmA,
 
 	for (int row = bx; row < order; row += get_num_groups(0)) {
 
-		//ubicación de elemento diagonal de la fila en elmA
+		//ubicación del elemento diagonal de la fila en elmA
 		int dId = idxA[row];
 
 		//número de elementos en la fila
@@ -809,10 +809,6 @@ void sparse_mat_vec_mul2_sks(__global double* elmA,
 
 		//número de elementos para una columna
 		int nEl = (col == order - 1 ? 1 : idxA[col + 1] - dId);
-
-		//posición en rowL del primer elemento fuera de la
-		//diagonal (índice)
-		int baseId = dId - col;
 
 		//elemento en b, por el que se multiplica
 		double mul = b[col];

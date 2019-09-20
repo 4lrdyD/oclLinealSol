@@ -1288,7 +1288,7 @@ diagonales de L son 1 implícitamente (no está almacenado)
 
 para un paso j modificará el elemento b[i] tal que i=n-j:
 
-b[i]=b[i]-sumatoria{j=i+1,n}(z[j]*L[j,i])
+b[i]=b[i]-sumatoria{j=i+1,n-1}(z[j]*L[i,j])
 
 este valor será la solución final x[i] del sistema Ax=b
 
@@ -1316,7 +1316,7 @@ void ldlt_5_c(__global double* L, __global double* z, int order,
 	__global double* filB = L + fL * order;
 
 	//valor donde se guardará una suma parcial
-	double sum = 0.0f;
+	double sum = 0.0;
 
 	//solo se usará un bloque
 	if (bx == 0) {

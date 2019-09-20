@@ -1149,7 +1149,7 @@ void chol_sparse_6_sks_sp(__global float* elmL,
 //------------------------
 
 /*Kernel que concibe los elementos de A, como ordenados por
-columna simple precisión*/
+columna doble precisión*/
 __kernel void
 Cholesky_c(__global double* A, __global double* b,
 	__local double* partialSum, int order, int step, int sstep)
@@ -1353,7 +1353,7 @@ void Chol_4_c(__global double* L, __global double* b, int order,
 	//columna de L implicada
 	__global double* colB = L + order * step;
 
-	//elemeto diagonal
+	//elemento diagonal
 	double diag = colB[step];
 
 	double k = b[step] / diag;
@@ -1387,7 +1387,7 @@ void Chol_5_c(__global double* A, __global double* b, int order)
 }
 
 /*
-Inicia la solución del sistema Ax=b teniendo la matriz trangular
+Inicia la solución del sistema Ax=b teniendo la matriz triangular
 inferior L (obtenido tras la factorización de cholesky),
 tal que A= L*transpose(L)
 
@@ -1396,7 +1396,7 @@ transpose(L)*x=y, "y" debe haberse obtenido anteriormente usando
 la función Chol_4_csp (y= b/diag(L), al final de usar Chol_4_csp).
 para un paso j modificará el elemento b[i] tal que i=n-j:
 
-b[i]=(b[i]-sumatoria{j=i+1,n}(y[j]*L[j,i]))/L[i,i]
+b[i]=(b[i]-sumatoria{j=i+1,n-1}(y[j]*L[i,j]))/L[i,i]
 
 este valor será la solución final x[i] del sistema Ax=b
 
@@ -1426,7 +1426,7 @@ void Chol_6_c(__global double* L, __global double* y, int order,
 	double diag = filB[fL];
 
 	//valor donde se guardará una suma parcial
-	double sum = 0.0f;
+	double sum = 0.0;
 
 	//solo se usará un bloque
 	if (bx == 0) {
@@ -1658,7 +1658,7 @@ void Chol_sparse_2(__global double* elmL, __global int* colL,
 		//índice local de hilo
 		int tx = get_local_id(0);
 
-		//posición edl primer elemento de la columna de elmL
+		//posición del primer elemento de la columna de elmL
 		int pos_elmL = colL[step];
 
 		//posición del primer elemento de la columna en rowL
@@ -2006,7 +2006,7 @@ void chol_sparse_2_sks(__global double* elmL,
 		//índice local de hilo
 		int tx = get_local_id(0);
 
-		//posición del primer elemento de la columna de elmL
+		//posición del primer elemento de la columna en elmL
 		int pos_elmL = idxL[step];
 
 		//número de elementos en elmL para la columna

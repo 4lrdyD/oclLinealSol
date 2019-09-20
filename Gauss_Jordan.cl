@@ -519,7 +519,7 @@ Gauss_Jordan_c(__global double* A,
 }
 
 /*
-función llamada por el kernel Gauss_Jordan_c_sp
+función llamada por el kernel Gauss_Jordan_c
 Resta a cada fila de A la fila "row" multiplicada por un
 factor, tal que el elemento ubicado en la posición "col"
 de cada fila sea cero luego de realizada la operación,
