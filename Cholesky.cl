@@ -1,6 +1,6 @@
 /*
 =========================================
-revisión 0.0.8 02-07-2019, 00:00 VS 2017
+revisión 0.0.9 22-11-2019, 02:10 VS 2017
 =========================================
 */
 /* Solución de un sistema de ecuaciones, usando 
@@ -1658,7 +1658,7 @@ void Chol_sparse_2(__global double* elmL, __global int* colL,
 		//índice local de hilo
 		int tx = get_local_id(0);
 
-		//posición del primer elemento de la columna de elmL
+		//posición del primer elemento de la columna en elmL
 		int pos_elmL = colL[step];
 
 		//posición del primer elemento de la columna en rowL
