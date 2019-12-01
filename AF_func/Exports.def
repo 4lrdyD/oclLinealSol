@@ -37,5 +37,15 @@ SELldlt_sparse_L=?SELldlt_sparse_c@AFire@@SAXPEAPEAXPEAX111@Z
 fac_sparse_ldlt_sks=?fac_sparse_ldlt_sks@AFire@@SAXPEAX0@Z 
 SELldlt_sparse_sks=?SELldlt_sparse_sks@AFire@@SAXPEAPEAXPEAX11@Z
 
+
 SELgj_c_test=?SELgj_c_test@AFire@@SANPEAX0@Z
 global_sync_test=?global_sync_test@AFire@@SAXPEAPEAXPEAX1@Z
+af_add_time=?af_add_time@AFire@@SANPEAX0@Z
+sumaaf_time=?sumaaf_time@AFire@@SANPEAX0@Z 
+SELchol_sparse_sks_time=?SELchol_sparse_sks_time@AFire@@SANPEAX00@Z
+sks_util_1=?sks_util_1@AFire@@SAXPEAPEAXPEAX1@Z
+sks_util_2=?sks_util_2@AFire@@SAXPEAX0000@Z 
+csc_util_1=?csc_util_1@AFire@@SAXPEAPEAXPEAX1@Z 
+csc_util_2=?csc_util_2@AFire@@SAXPEAPEAXPEAX1@Z 
+csc_util_3=?csc_util_3@AFire@@SAXPEAX0@Z
+csc_util_4=?csc_util_4@AFire@@SAXPEAX00000@Z 

@@ -338,7 +338,7 @@ int main_sparse_sks()//sparse_sks
 	return 0;
 }
 
-int main()
+int main1()
 {
 	double _M[] = { 4.,	4.,	4.,	2.,	6.,	7.,	2.,
 5.,	2.,	4.,	6.,	2.,	3.,	4.,
@@ -373,4 +373,74 @@ int main()
 	af_print_array(mul);
 
 	return 0;
+}
+
+void sum(float *gC, float *gA, float *gB, int orden) 
+{
+	for (int id = 0; id < orden; id++) {
+		gC[id] = gA[id] + gB[id];
+	}
+}
+int main()
+{
+	int row_[] = { 0, 1, 4, 0, 1, 2, 3, 4, 1, 2,
+		5, 1, 3, 5, 0, 1, 4, 5, 6, 2, 3, 4, 5, 6,
+		4, 5, 6 };
+	int col_[] = { 0, 0, 0, 1,  1,  1, 1, 1, 2, 2,
+		2, 3, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5,
+		6, 6, 6 };
+	double nz_[] = { 1, 2, 3, 2, 2, 5, 6, 7, 5, 4,
+	4, 6, 3, 6, 3, 7, 7, 2, 9, 4, 6, 2, 9, 6,
+	9, 6, 9 };
+
+	array row(27, 1, row_);
+	array col(27, 1, col_);
+	array nz(27, 1, nz_);
+	
+	af_array index;
+	AFire::csc_util_1(&index, row.get(),
+		col.get());
+	af_print_array(index);
+
+	af_array del;
+	AFire::csc_util_2(&del, index, row.get());
+	af_print_array(del);
+
+	int del2_[] = { 0, 1, 2, 3, 5, 8, 10 };
+	array del2(7, 1, del2_);
+
+	AFire::csc_util_3(del2.get(), index);
+	af_print_array(index);
+
+	af_array csc;
+	dim_t d_order[] = { 17 };
+	af_constant(&csc, 0, 1, d_order, f64);
+
+	af_array rowc;
+	dim_t d_order_[] = { 10 };
+	af_constant(&rowc, 0, 1, d_order_, s32);
+
+	AFire::csc_util_4(csc, rowc, index, nz.get(),
+		row.get(), del2.get());
+	af_print_array(csc);
+	af_print_array(rowc);
+	/*double real;
+	double imag;
+
+	af_sum_all(&real, &imag, index);
+	std::cout << real << std::endl;
+
+	af_array sks;
+	dim_t d_order[] = { (int)real };
+	af_constant(&sks, 0, 1, d_order, f32);
+
+	int index_[] = { 0, 5, 9, 13, 16, 19, 21};
+
+	array idx(7, 1, index_);
+
+	AFire::sks_util_2(sks,idx.get(),nz.get(),
+		row.get(), col.get());
+	af_print_array(sks);
+	*/
+	
 }

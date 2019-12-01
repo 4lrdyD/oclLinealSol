@@ -1,5 +1,5 @@
 //==========================================
-//revisión 0.7.4 18-07-2019, 22:40, VS 2017
+//revisión 0.7.5 01-12-2019, 18:10, VS 2017
 //==========================================
 #pragma once
 #ifdef HEADER_EXPORTS
@@ -417,7 +417,36 @@ public:
 	static HEADER_API double SELgj_c_test(af_array,
 		af_array);
 	static HEADER_API
+		double AFire::SELchol_sparse_sks_time(af_array elm,
+		af_array Idx, af_array F);
+	static HEADER_API
+		double AFire::sumaaf_time(af_array A, af_array B);
+	static HEADER_API
+		double AFire::af_add_time(af_array A, af_array B);
+
+	static HEADER_API
 		void global_sync_test(af_array*, af_array,
 			af_array);
+	static HEADER_API
+		void AFire::sks_util_1(af_array* index, af_array row,
+			af_array col);
+	static HEADER_API
+		void AFire::sks_util_2(af_array sks, af_array ptr,
+			af_array nz,af_array row, af_array col);
+	static HEADER_API
+		void AFire::csc_util_1(af_array* index, af_array row,
+			af_array col);
+	static HEADER_API
+		void AFire::csc_util_2(af_array* del, af_array index,
+			af_array row);
+
+	static HEADER_API
+		void AFire::csc_util_3(af_array del, 
+			af_array ptr);
+
+	static HEADER_API
+		void AFire::csc_util_4(af_array csc, af_array rowc,
+			af_array ptr, af_array nz, af_array row,
+			af_array col);
 };
 

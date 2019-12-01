@@ -1,5 +1,5 @@
 //==========================================
-//revisión 0.9.5 18-07-2019, 22:40 VS 2017
+//revisión 0.9.6 01-12-2019, 18:10 VS 2017
 //==========================================
 
 #include "Header.h"
@@ -13,7 +13,7 @@ char * Cholesky_source = AFire::kernel_src("Common.h",
 char * ldlt_source = AFire::kernel_src("Common.h", "ldlt.cl");
 char * gc_source = AFire::kernel_src("Common.h",
 	"Gradiente_conjugado.cl");
-
+char * util_src = AFire::kernel_src("Common.h", "util.cl");
 using namespace af;
 
 //----------
@@ -3734,4 +3734,545 @@ void AFire::global_sync_test(af_array* dC, af_array dA,
 	af_release_array(Ad);
 	af_release_array(Ac);
 	af_release_indexers(indexers);
+}
+
+void AFire::sks_util_1(af_array* index, af_array row,
+	af_array col) {
+	//Obteniendo el dispositivo, contexto y la cola usada por ArrayFire
+	//cl_context af_context;
+	static cl_context af_context = afcl::getContext();
+	static cl_device_id af_device_id = afcl::getDeviceId();
+	static cl_command_queue af_queue = afcl::getQueue();
+	
+	double orderd;
+	double helper;
+	af_max_all(&orderd, &helper, col);
+	int order = (int)orderd;
+	order++;
+
+	af_dtype typef;
+	af_get_type(&typef, row);
+
+	af_array idx;
+	dim_t d_order[] = { order };
+	af_constant(&idx, 0, 1, d_order, typef);
+
+	dim_t _order[AF_MAX_DIMS];
+	af_get_dims(&_order[0], &_order[1], &_order[2], &_order[3], row);
+	size_t lennz = _order[0];
+
+	size_t localWorkSize = BLOCK_SIZE * BLOCK_SIZE;
+	size_t globalWorkSize = localWorkSize * BLOCK_SIZE;
+
+	int status = CL_SUCCESS;
+
+	//obteniendo las referencias cl_mem de los objetos af::array
+	cl_mem *d_col = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_ONLY, sizeof(int)*lennz,
+		NULL, &status);
+	af_get_device_ptr((void**)d_col, col);
+
+	cl_mem *d_row = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_ONLY, sizeof(int)*lennz,
+		NULL, &status);
+	af_get_device_ptr((void**)d_row, row);
+
+	cl_mem *d_idx = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_WRITE_ONLY, sizeof(int)*order,
+		NULL, &status);
+	af_get_device_ptr((void**)d_idx, idx);
+
+	size_t program_length = strlen(util_src);
+
+
+	//creando el programa, construyendo el ejecutable y 
+	//extrayendo el punto de entrada
+	// para el Kernel
+	cl_program program = 
+		clCreateProgramWithSource(af_context, 1,
+		(const char **)&util_src, &program_length,
+			&status);
+	status = clBuildProgram(program, 1, &af_device_id,
+		NULL, NULL, NULL);
+
+	char* kernelName;
+	kernelName = "sks_util_1";
+
+	cl_kernel kernel = clCreateKernel(program, kernelName,
+		&status);
+
+	// estableciendo los argumentos
+	int i = 0;
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_idx);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_row);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_col);
+	clSetKernelArg(kernel, i++, sizeof(cl_int), &lennz);
+
+	
+	clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+			&globalWorkSize, &localWorkSize, 0, NULL,
+			NULL);
+
+	//devolviendo el control de memoria af::array a ArrayFire 
+	af_unlock_array(col);
+	af_unlock_array(row);
+
+	// copiando el resultado en dC
+	af_copy_array(index, idx);
+
+	af_release_array(idx);
+}
+
+void AFire::sks_util_2(af_array sks, af_array ptr,
+	af_array nz, af_array row, af_array col) {
+	//Obteniendo el dispositivo, contexto y la cola usada por ArrayFire
+		//cl_context af_context;
+	static cl_context af_context = afcl::getContext();
+	static cl_device_id af_device_id = afcl::getDeviceId();
+	static cl_command_queue af_queue = afcl::getQueue();
+	
+	double orderd;
+	double helper;
+	af_max_all(&orderd, &helper, col);
+	int order = (int)orderd;
+	order++;
+
+	af_dtype typef;
+	af_get_type(&typef, nz);
+
+	dim_t _order[AF_MAX_DIMS];
+	af_get_dims(&_order[0], &_order[1], &_order[2], &_order[3], row);
+	size_t lennz = _order[0];
+
+	af_get_dims(&_order[0], &_order[1], &_order[2], &_order[3], sks);
+	size_t lensks = _order[0];
+
+	size_t localWorkSize = BLOCK_SIZE * BLOCK_SIZE;
+	size_t globalWorkSize = localWorkSize * BLOCK_SIZE;
+
+	int status = CL_SUCCESS;
+
+	int msize = 0;
+	if (typef == f32)
+		msize = sizeof(float);
+	else if (typef == f64)
+		msize = sizeof(double);
+	else;
+
+	//obteniendo las referencias cl_mem de los objetos af::array
+	cl_mem *d_sks = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_WRITE_ONLY, msize*lensks,
+		NULL, &status);
+	af_get_device_ptr((void**)d_sks, sks);
+
+	cl_mem *d_ptr = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_ONLY, sizeof(int)*order,
+		NULL, &status);
+	af_get_device_ptr((void**)d_ptr, ptr);
+
+	cl_mem *d_nz = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_ONLY, msize*lennz,
+		NULL, &status);
+	af_get_device_ptr((void**)d_nz, nz);
+
+	cl_mem *d_row = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_ONLY, sizeof(int)*lennz,
+		NULL, &status);
+	af_get_device_ptr((void**)d_row, row);
+
+	cl_mem *d_col = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_ONLY, sizeof(int)*lennz,
+		NULL, &status);
+	af_get_device_ptr((void**)d_col, col);
+
+
+	size_t program_length = strlen(util_src);
+
+
+	//creando el programa, construyendo el ejecutable y 
+	//extrayendo el punto de entrada
+	// para el Kernel
+	cl_program program =
+		clCreateProgramWithSource(af_context, 1,
+		(const char **)&util_src, &program_length,
+			&status);
+	status = clBuildProgram(program, 1, &af_device_id,
+		NULL, NULL, NULL);
+
+	char* kernelName;
+	if (typef == f32)
+		kernelName = "sks_util_2_sp";
+	else if (typef == f64)
+		kernelName = "sks_util_2";
+	else;
+	cl_kernel kernel = clCreateKernel(program, kernelName,
+		&status);
+
+	// estableciendo los argumentos
+	int i = 0;
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_sks);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_ptr);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_nz);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_row);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_col);
+	clSetKernelArg(kernel, i++, sizeof(cl_int), &lennz);
+
+
+	clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+		&globalWorkSize, &localWorkSize, 0, NULL,
+		NULL);
+
+	//devolviendo el control de memoria af::array a ArrayFire 
+	af_unlock_array(sks);
+	af_unlock_array(ptr);
+	af_unlock_array(nz);
+	af_unlock_array(row);
+	af_unlock_array(col);
+}
+
+void AFire::csc_util_1(af_array* index, af_array row,
+	af_array col) {
+	//Obteniendo el dispositivo, contexto y la cola usada por ArrayFire
+	//cl_context af_context;
+	static cl_context af_context = afcl::getContext();
+	static cl_device_id af_device_id = afcl::getDeviceId();
+	static cl_command_queue af_queue = afcl::getQueue();
+
+	double orderd;
+	double helper;
+	af_max_all(&orderd, &helper, col);
+	int order = (int)orderd;
+	order++;
+
+	af_dtype typef;
+	af_get_type(&typef, row);
+
+	af_array idx;
+	dim_t d_order[] = { order };
+	af_constant(&idx, 0, 1, d_order, typef);
+
+	dim_t _order[AF_MAX_DIMS];
+	af_get_dims(&_order[0], &_order[1], &_order[2], &_order[3], row);
+	size_t lennz = _order[0];
+
+	size_t localWorkSize = BLOCK_SIZE * BLOCK_SIZE;
+	size_t globalWorkSize = localWorkSize * BLOCK_SIZE;
+
+	int status = CL_SUCCESS;
+
+	//obteniendo las referencias cl_mem de los objetos af::array
+	cl_mem *d_col = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_ONLY, sizeof(int)*lennz,
+		NULL, &status);
+	af_get_device_ptr((void**)d_col, col);
+
+	cl_mem *d_row = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_ONLY, sizeof(int)*lennz,
+		NULL, &status);
+	af_get_device_ptr((void**)d_row, row);
+
+	cl_mem *d_idx = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_WRITE_ONLY, sizeof(int)*order,
+		NULL, &status);
+	af_get_device_ptr((void**)d_idx, idx);
+
+	size_t program_length = strlen(util_src);
+
+
+	//creando el programa, construyendo el ejecutable y 
+	//extrayendo el punto de entrada
+	// para el Kernel
+	cl_program program =
+		clCreateProgramWithSource(af_context, 1,
+		(const char **)&util_src, &program_length,
+			&status);
+	status = clBuildProgram(program, 1, &af_device_id,
+		NULL, NULL, NULL);
+
+	char* kernelName;
+	kernelName = "csc_util_1";
+
+	cl_kernel kernel = clCreateKernel(program, kernelName,
+		&status);
+
+	// estableciendo los argumentos
+	int i = 0;
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_idx);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_row);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_col);
+	clSetKernelArg(kernel, i++, sizeof(cl_int), &lennz);
+
+
+	clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+		&globalWorkSize, &localWorkSize, 0, NULL,
+		NULL);
+
+	//devolviendo el control de memoria af::array a ArrayFire 
+	af_unlock_array(col);
+	af_unlock_array(row);
+
+	// copiando el resultado en dC
+	af_copy_array(index, idx);
+
+	af_release_array(idx);
+}
+
+void AFire::csc_util_2(af_array* del, af_array index,
+	af_array row) {
+	//Obteniendo el dispositivo, contexto y la cola usada por ArrayFire
+	//cl_context af_context;
+	static cl_context af_context = afcl::getContext();
+	static cl_device_id af_device_id = afcl::getDeviceId();
+	static cl_command_queue af_queue = afcl::getQueue();
+
+	dim_t _order[AF_MAX_DIMS];
+	af_get_dims(&_order[0], &_order[1], &_order[2], &_order[3], index);
+	size_t order = _order[0];
+
+	af_get_dims(&_order[0], &_order[1], &_order[2], &_order[3], row);
+	size_t lennz = _order[0];
+
+	af_dtype typef;
+	af_get_type(&typef, index);
+
+	af_array idx;
+	dim_t d_order[] = { order };
+	af_constant(&idx, 0, 1, d_order, typef);
+
+	size_t localWorkSize = BLOCK_SIZE * BLOCK_SIZE;
+	size_t globalWorkSize = localWorkSize * BLOCK_SIZE;
+
+	int status = CL_SUCCESS;
+
+	//obteniendo las referencias cl_mem de los objetos af::array
+
+	cl_mem *d_index = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_ONLY, sizeof(int)*order,
+		NULL, &status);
+	af_get_device_ptr((void**)d_index, index);
+
+	cl_mem *d_row = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_ONLY, sizeof(int)*lennz,
+		NULL, &status);
+	af_get_device_ptr((void**)d_row, row);
+
+	cl_mem *d_idx = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_WRITE_ONLY, sizeof(int)*order,
+		NULL, &status);
+	af_get_device_ptr((void**)d_idx, idx);
+
+	size_t program_length = strlen(util_src);
+
+	//creando el programa, construyendo el ejecutable y 
+	//extrayendo el punto de entrada
+	// para el Kernel
+	cl_program program =
+		clCreateProgramWithSource(af_context, 1,
+		(const char **)&util_src, &program_length,
+			&status);
+	status = clBuildProgram(program, 1, &af_device_id,
+		NULL, NULL, NULL);
+
+	char* kernelName;
+	kernelName = "csc_util_2";
+
+	cl_kernel kernel = clCreateKernel(program, kernelName,
+		&status);
+
+	// estableciendo los argumentos
+	int i = 0;
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_idx);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_index);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_row);
+	clSetKernelArg(kernel, i++, sizeof(cl_int), &order);
+
+
+	clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+		&globalWorkSize, &localWorkSize, 0, NULL,
+		NULL);
+
+	//devolviendo el control de memoria af::array a ArrayFire 
+	af_unlock_array(index);
+	af_unlock_array(row);
+
+	// copiando el resultado en dC
+	af_copy_array(del, idx);
+
+	af_release_array(idx);
+}
+
+void AFire::csc_util_3(af_array del, af_array ptr) {
+	//Obteniendo el dispositivo, contexto y la cola usada por ArrayFire
+	//cl_context af_context;
+	static cl_context af_context = afcl::getContext();
+	static cl_device_id af_device_id = afcl::getDeviceId();
+	static cl_command_queue af_queue = afcl::getQueue();
+
+	dim_t _order[AF_MAX_DIMS];
+	af_get_dims(&_order[0], &_order[1], &_order[2],
+		&_order[3], ptr);
+	size_t order = _order[0];
+
+	size_t localWorkSize = BLOCK_SIZE * BLOCK_SIZE;
+	size_t globalWorkSize = localWorkSize * BLOCK_SIZE;
+
+	int status = CL_SUCCESS;
+
+	//obteniendo las referencias cl_mem de los objetos af::array
+
+	cl_mem *d_del = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_ONLY, sizeof(int)*order,
+		NULL, &status);
+	af_get_device_ptr((void**)d_del, del);
+
+	cl_mem *d_ptr = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_WRITE, sizeof(int)*order,
+		NULL, &status);
+	af_get_device_ptr((void**)d_ptr, ptr);
+
+	size_t program_length = strlen(util_src);
+
+	//creando el programa, construyendo el ejecutable y 
+	//extrayendo el punto de entrada
+	// para el Kernel
+	cl_program program =
+		clCreateProgramWithSource(af_context, 1,
+		(const char **)&util_src, &program_length,
+			&status);
+	status = clBuildProgram(program, 1, &af_device_id,
+		NULL, NULL, NULL);
+
+	char* kernelName;
+	kernelName = "csc_util_3";
+
+	cl_kernel kernel = clCreateKernel(program, kernelName,
+		&status);
+
+	// estableciendo los argumentos
+	int i = 0;
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_del);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_ptr);
+	clSetKernelArg(kernel, i++, sizeof(cl_int), &order);
+	clSetKernelArg(kernel, i++, 
+		sizeof(int)*localWorkSize, 0);
+
+
+	clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+		&globalWorkSize, &localWorkSize, 0, NULL,
+		NULL);
+
+	//devolviendo el control de memoria af::array a ArrayFire 
+	af_unlock_array(del);
+	af_unlock_array(ptr);
+}
+
+void AFire::csc_util_4(af_array csc, af_array rowc,
+	af_array ptr, af_array nz, af_array row, af_array del) {
+	//Obteniendo el dispositivo, contexto y la cola usada por ArrayFire
+		//cl_context af_context;
+	static cl_context af_context = afcl::getContext();
+	static cl_device_id af_device_id = afcl::getDeviceId();
+	static cl_command_queue af_queue = afcl::getQueue();
+    
+	dim_t _order[AF_MAX_DIMS];
+	af_get_dims(&_order[0], &_order[1], &_order[2],
+		&_order[3], ptr);
+	size_t order = _order[0];
+	
+	af_get_dims(&_order[0], &_order[1], &_order[2],
+		&_order[3], row);
+	size_t lennz = _order[0];
+
+	af_get_dims(&_order[0], &_order[1], &_order[2],
+		&_order[3], csc);
+	size_t lencsc = _order[0];
+
+	af_dtype typef;
+	af_get_type(&typef, nz);
+
+	size_t localWorkSize = BLOCK_SIZE * BLOCK_SIZE;
+	size_t globalWorkSize = localWorkSize * BLOCK_SIZE;
+
+	int status = CL_SUCCESS;
+
+	int msize = 0;
+	if (typef == f32)
+		msize = sizeof(float);
+	else if (typef == f64)
+		msize = sizeof(double);
+	else;
+
+	//obteniendo las referencias cl_mem de los objetos af::array
+	cl_mem *d_csc = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_WRITE_ONLY, msize*lencsc,
+		NULL, &status);
+	af_get_device_ptr((void**)d_csc, csc);
+
+	cl_mem *d_rowc = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_WRITE_ONLY, sizeof(int)*(lencsc - order),
+		NULL, &status);
+	af_get_device_ptr((void**)d_rowc, rowc);
+
+	cl_mem *d_ptr = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_ONLY, sizeof(int)*order,
+		NULL, &status);
+	af_get_device_ptr((void**)d_ptr, ptr);
+
+	cl_mem *d_nz = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_ONLY, msize*lennz,
+		NULL, &status);
+	af_get_device_ptr((void**)d_nz, nz);
+
+	cl_mem *d_row = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_ONLY, sizeof(int)*lennz,
+		NULL, &status);
+	af_get_device_ptr((void**)d_row, row);
+
+	cl_mem *d_del = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_ONLY, sizeof(int)*order,
+		NULL, &status);
+	af_get_device_ptr((void**)d_del, del);
+
+	size_t program_length = strlen(util_src);
+
+	//creando el programa, construyendo el ejecutable y 
+	//extrayendo el punto de entrada
+	// para el Kernel
+	cl_program program =
+		clCreateProgramWithSource(af_context, 1,
+		(const char **)&util_src, &program_length,
+			&status);
+	status = clBuildProgram(program, 1, &af_device_id,
+		NULL, NULL, NULL);
+
+	char* kernelName;
+	if (typef == f32)
+		kernelName = "csc_util_4_sp";
+	else if (typef == f64)
+		kernelName = "csc_util_4";
+	else;
+	cl_kernel kernel = clCreateKernel(program, kernelName,
+		&status);
+
+	// estableciendo los argumentos
+	int i = 0;
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_csc);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_rowc);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_ptr);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_nz);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_row);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_del);
+	clSetKernelArg(kernel, i++, sizeof(cl_int), &order);
+
+
+	clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+		&globalWorkSize, &localWorkSize, 0, NULL,
+		NULL);
+
+	//devolviendo el control de memoria af::array a ArrayFire 
+	af_unlock_array(csc);
+	af_unlock_array(ptr);
+	af_unlock_array(nz);
+	af_unlock_array(row);
+	af_unlock_array(del);
 }
