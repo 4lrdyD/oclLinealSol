@@ -1,5 +1,5 @@
 //==========================================
-//revisión 0.9.6 01-12-2019, 18:10 VS 2017
+//revisión 0.9.7 06-01-2020, 22:40 VS 2017
 //==========================================
 
 #include "Header.h"
@@ -690,7 +690,7 @@ void AFire::sparse_sks_mat_vec_mul(af_array* dC,
 //--------------
 //Algebra Lineal
 //--------------
-
+//1. Gauss-Jordan
 void AFire::SELgj_f(af_array* dC, af_array dA, af_array dB) {
 	//Obteniendo el dispositivo, contexto y la cola usada por ArrayFire
 	//cl_context af_context;
@@ -898,6 +898,108 @@ void AFire::SELgj_c(af_array* dC, af_array dA, af_array dB) {
 
 	//dividiendo
 	af_release_array(Ac);
+	af_div(&Ac, Au, Ad, false);
+
+	// copiando el resultado en dC
+	af_copy_array(dC, Ac);
+
+	af_release_array(Au);
+	af_release_array(Ad);
+	af_release_array(Ac);
+	af_release_indexers(indexers);
+}
+
+void AFire::SELgj_c(af_array* dC, af_array dA) {
+	//Obteniendo el dispositivo, contexto y la cola usada por ArrayFire
+	//cl_context af_context;
+	static cl_context af_context = afcl::getContext();
+	static cl_device_id af_device_id = afcl::getDeviceId();
+	static cl_command_queue af_queue = afcl::getQueue();
+
+	dim_t _order[AF_MAX_DIMS];
+	af_get_dims(&_order[0], &_order[1], &_order[2],
+		&_order[3], dA);
+	size_t order = _order[0];
+
+	size_t localWorkSize = BLOCK_SIZE * BLOCK_SIZE;
+	size_t globalWorkSize = localWorkSize * BLOCK_SIZE;
+
+	int status = CL_SUCCESS;
+
+	af_dtype typef;
+	af_get_type(&typef, dA);
+
+	int msize = 0;
+	if (typef == f64)
+		msize = sizeof(double);
+	else if (typef == f32)
+		msize = sizeof(float);
+	else;
+
+	//obteniendo las referencias cl_mem de los objetos af::array
+	cl_mem *d_A = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_WRITE, msize * order*(order + 1),
+		NULL, &status);
+	af_get_device_ptr((void**)d_A, dA);
+
+	size_t program_length = strlen(GJordan_source);
+
+	//creando el programa, construyendo el ejecutable y extrayendo el punto de entrada
+	// para el Kernel
+	cl_program program =
+		clCreateProgramWithSource(af_context, 1,
+		(const char **)&GJordan_source, &program_length,
+			&status);
+	status = clBuildProgram(program, 1, &af_device_id,
+		NULL, NULL, NULL);
+
+	char* kernelName;
+	if (typef == f64)
+		kernelName = "Gauss_Jordan_c";
+	else if (typef == f32)
+		kernelName = "Gauss_Jordan_c_sp";
+	else;
+	cl_kernel kernel = clCreateKernel(program, kernelName,
+		&status);
+
+	// estableciendo los argumentos
+	int i = 0;
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_A);
+	clSetKernelArg(kernel, i++, sizeof(cl_int), &order);
+
+	for (int j = 0; j < order; j++)
+	{
+		clSetKernelArg(kernel, 2, sizeof(cl_int), &j);
+		//ejecutando el Kernel
+		clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+			&globalWorkSize, &localWorkSize, 0, NULL,
+			NULL);
+	}
+
+	//devolviendo el control de memoria af::array a ArrayFire 
+	af_unlock_array(dA);
+
+	//hasta aqui dA contiene en su última columna
+	//y en su diagonal principal, los valores 
+	//finales que deben dividirse para obtener
+	//la solución final
+
+	//extrayendo la última columna
+	af_array Au;
+	af_index_t* indexers = 0;
+	af_create_indexers(&indexers);
+	af_set_seq_param_indexer(indexers, 0, order - 1, 1,
+		0, false);
+	af_set_seq_param_indexer(indexers, order, order, 1,
+		1, false);
+	af_index_gen(&Au, dA, 2, indexers);
+
+	//extrayendo la diagonal
+	af_array Ad;
+	af_diag_extract(&Ad, dA, 0);
+
+	//dividiendo
+	af_array Ac;
 	af_div(&Ac, Au, Ad, false);
 
 	// copiando el resultado en dC
@@ -1286,6 +1388,7 @@ void AFire::prueba_shr(af_array* dC, af_array dA,
 	af_release_array(Rs);
 }
 
+//2. Gradientes conjugados
 void AFire::SEL_gc(af_array* C, af_array A, af_array b,
 	double Ierr) {
 
@@ -1678,6 +1781,7 @@ array AFire::SEL_gc(array A, array b, double Ierr){
 	return x;
 }
 
+//3. Factorización de Cholesky
 void AFire::SELchol_c(af_array* dC, af_array dA, af_array dB) {
 	//Obteniendo el dispositivo, contexto y la cola usada por ArrayFire
 	//cl_context af_context;
@@ -1917,241 +2021,6 @@ void AFire::fac_chol_c(af_array* L, af_array A) {
 	clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
 		&globalWorkSize, &localWorkSize, 0, NULL,
 		NULL);
-
-	//7. devolviendo el control de memoria af::array a ArrayFire 
-	af_unlock_array(Ac);
-
-	// copiando el resultado en dC
-	af_copy_array(L, Ac);
-
-	af_release_array(Ac);
-}
-
-void AFire::SELldlt_c(af_array* dC, af_array dA, af_array dB) {
-	//Obteniendo el dispositivo, contexto y la cola usada por ArrayFire
-	//cl_context af_context;
-	static cl_context af_context = afcl::getContext();
-	static cl_device_id af_device_id = afcl::getDeviceId();
-	static cl_command_queue af_queue = afcl::getQueue();
-
-	//copia de A y B
-	af_array Ac;
-	af_array Bc;
-	af_copy_array(&Ac, dA);
-	af_copy_array(&Bc, dB);
-
-	dim_t _order[AF_MAX_DIMS];
-	af_get_dims(&_order[0], &_order[1], &_order[2], &_order[3], dA);
-	size_t order = _order[0];
-
-	size_t localWorkSize = BLOCK_SIZE * BLOCK_SIZE;
-	size_t globalWorkSize = localWorkSize * BLOCK_SIZE;
-
-	int status = CL_SUCCESS;
-
-	af_dtype typef;
-	af_get_type(&typef, dA);
-
-	int msize = 0;
-	if (typef == f64)
-		msize = sizeof(double);
-	else if (typef == f32)
-		msize = sizeof(float);
-	else;
-
-	//obteniendo las referencias cl_mem de los objetos af::array
-	cl_mem *d_A = (cl_mem*)clCreateBuffer(af_context,
-		CL_MEM_READ_WRITE, msize*order*order,
-		NULL, &status);
-	af_get_device_ptr((void**)d_A, Ac);
-
-	cl_mem *d_B = (cl_mem*)clCreateBuffer(af_context,
-		CL_MEM_READ_WRITE, msize*order,
-		NULL, &status);
-	af_get_device_ptr((void**)d_B, Bc);
-
-	size_t program_length = strlen(ldlt_source);
-
-
-	//creando el programa, construyendo el ejecutable y extrayendo el punto de entrada
-	// para el Kernel
-	cl_program program = clCreateProgramWithSource(af_context, 1, (const char **)&ldlt_source, &program_length, &status);
-	status = clBuildProgram(program, 1, &af_device_id, NULL, NULL, NULL);
-
-	char* kernelName;
-	if (typef == f64)
-		kernelName = "ldlt_c";
-	else if (typef == f32)
-		kernelName = "ldlt_c_sp";
-	else;
-	cl_kernel kernel = clCreateKernel(program, kernelName,
-		&status);
-
-	// estableciendo los argumentos
-	int i = 0;
-	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_A);
-	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_B);
-	clSetKernelArg(kernel, i++, msize*localWorkSize, 0);
-	clSetKernelArg(kernel, i++, sizeof(cl_int), &order);
-
-	for (int j = 0; j < order; j++)
-	{
-		//Se modifican los elementos de la columna j a partir 
-		//de la fila j + 1.
-		//A(n,j)=A(n,j)/A(j,j) n>j
-		int sstep = 0;
-		clSetKernelArg(kernel, 4, sizeof(cl_int), &j);
-		clSetKernelArg(kernel, 5, sizeof(cl_int), &sstep);
-		clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
-			&globalWorkSize, &localWorkSize, 0, NULL,
-			NULL);
-
-		//para una columna s, s > j, se modifican las filas 
-		//n >= s
-	    //A(n, s) = A(n, s) - A(s, j)*A(n, j)*A(j, j) 
-		//s > j, n >= s
-		sstep++;
-		clSetKernelArg(kernel, 5, sizeof(cl_int), &sstep);
-		clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
-			&globalWorkSize, &localWorkSize, 0, NULL,
-			NULL);
-	}
-
-	//luego de la factorización se tiene el sistema equivalente
-	//L*D*transpose(L)x=b que debe resolverse separadamente para
-	//Ly=b, luego para Dz=y y finalmente para transpose(L)x=z
-	
-	//resolviendo Ly=b
-	int fstep = 2;
-	clSetKernelArg(kernel, 5, sizeof(cl_int), &fstep);
-	for (int j = 0; j < order; j++)
-	{
-		//para un paso j, modificará el vector b tal que :
-		//b[n] = b[n] - b[j] * L[n, j] n > j
-		clSetKernelArg(kernel, 4, sizeof(cl_int), &j);
-		clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
-			&globalWorkSize, &localWorkSize, 0, NULL,
-			NULL);
-	}
-
-	//resolviendo Dz=y
-	fstep++;
-	clSetKernelArg(kernel, 5, sizeof(cl_int), &fstep);
-	clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
-		&globalWorkSize, &localWorkSize, 0, NULL,
-		NULL);
-
-	//resolviendo transpose(L)x=z
-	fstep++;
-	clSetKernelArg(kernel, 5, sizeof(cl_int), &fstep);
-	for (int j = 0; j < order; j++)
-	{
-		//para un paso j modificará el elemento b[i] 
-		//tal que i = n - j:
-		//b[i] = b[i] - sumatoria{ j = i + 1,n }(z[j] * L[j, i])
-		//este valor será la solución final x[i] del 
-		//sistema Ax = b
-		clSetKernelArg(kernel, 4, sizeof(cl_int), &j);
-		clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
-			&globalWorkSize, &localWorkSize, 0, NULL,
-			NULL);
-	}
-
-	//devolviendo el control de memoria af::array a ArrayFire 
-	af_unlock_array(Ac);
-	af_unlock_array(Bc);
-
-	// copiando el resultado en dC
-	af_copy_array(dC, Bc);
-
-	af_release_array(Ac);
-	af_release_array(Bc);
-}
-
-void AFire::fac_ldlt_c(af_array* L, af_array A) {
-	//1. Obteniendo el dispositivo, contexto y la cola usada por ArrayFire
-	//cl_context af_context;
-	static cl_context af_context = afcl::getContext();
-	static cl_device_id af_device_id = afcl::getDeviceId();
-	static cl_command_queue af_queue = afcl::getQueue();
-
-	//2. Obteniendo parámetros necesarios
-	//copia de A
-	af_array Ac;
-	af_copy_array(&Ac, A);
-
-	dim_t _order[AF_MAX_DIMS];
-	af_get_dims(&_order[0], &_order[1], &_order[2],
-		&_order[3], A);
-	size_t order = _order[0];
-
-	size_t localWorkSize = BLOCK_SIZE * BLOCK_SIZE;
-	size_t globalWorkSize = localWorkSize * BLOCK_SIZE;
-
-	int status = CL_SUCCESS;
-
-	af_dtype typef;
-	af_get_type(&typef, A);
-
-	int msize = 0;
-	if (typef == f64)
-		msize = sizeof(double);
-	else if (typef == f32)
-		msize = sizeof(float);
-	else;
-
-	//3.obteniendo las referencias cl_mem de los objetos af::array
-	cl_mem *d_A = (cl_mem*)clCreateBuffer(af_context,
-		CL_MEM_READ_WRITE, msize*order*order,
-		NULL, &status);
-	af_get_device_ptr((void**)d_A, Ac);
-
-	size_t program_length = strlen(ldlt_source);
-
-	//4.creando el programa, construyendo el ejecutable y extrayendo el punto de entrada
-	// para el Kernel
-	cl_program program = clCreateProgramWithSource(af_context, 1, (const char **)&ldlt_source, &program_length, &status);
-	status = clBuildProgram(program, 1, &af_device_id, NULL, NULL, NULL);
-
-	char* kernelName;
-	if (typef == f64)
-		kernelName = "ldlt_c";
-	else if (typef == f32)
-		kernelName = "ldlt_c_sp";
-	else;
-	cl_kernel kernel = clCreateKernel(program, kernelName,
-		&status);
-
-	// 5.estableciendo los argumentos
-	int i = 0;
-	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_A);
-	clSetKernelArg(kernel, i++, sizeof(cl_mem), 0);
-	clSetKernelArg(kernel, i++, msize*localWorkSize, 0);
-	clSetKernelArg(kernel, i++, sizeof(cl_int), &order);
-
-	//6.Ejecutando el kernel
-	for (int j = 0; j < order; j++)
-	{
-		//Se modifican los elementos de la columna j a partir 
-		//de la fila j + 1.
-		//A(n,j)=A(n,j)/A(j,j) n>j
-		int sstep = 0;
-		clSetKernelArg(kernel, 4, sizeof(cl_int), &j);
-		clSetKernelArg(kernel, 5, sizeof(cl_int), &sstep);
-		clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
-			&globalWorkSize, &localWorkSize, 0, NULL,
-			NULL);
-
-		//para una columna s, s > j, se modifican las filas 
-		//n >= s
-		//A(n, s) = A(n, s) - A(s, j)*A(n, j)*A(j, j) 
-		//s > j, n >= s
-		sstep++;
-		clSetKernelArg(kernel, 5, sizeof(cl_int), &sstep);
-		clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
-			&globalWorkSize, &localWorkSize, 0, NULL,
-			NULL);
-	}
 
 	//7. devolviendo el control de memoria af::array a ArrayFire 
 	af_unlock_array(Ac);
@@ -2915,6 +2784,242 @@ void AFire::SELchol_sparse_sks(af_array* dC, af_array elmL,
 	af_copy_array(dC, b);
 
 	af_release_array(b);
+}
+
+//3. Factorización LDLT
+void AFire::SELldlt_c(af_array* dC, af_array dA, af_array dB) {
+	//Obteniendo el dispositivo, contexto y la cola usada por ArrayFire
+	//cl_context af_context;
+	static cl_context af_context = afcl::getContext();
+	static cl_device_id af_device_id = afcl::getDeviceId();
+	static cl_command_queue af_queue = afcl::getQueue();
+
+	//copia de A y B
+	af_array Ac;
+	af_array Bc;
+	af_copy_array(&Ac, dA);
+	af_copy_array(&Bc, dB);
+
+	dim_t _order[AF_MAX_DIMS];
+	af_get_dims(&_order[0], &_order[1], &_order[2], &_order[3], dA);
+	size_t order = _order[0];
+
+	size_t localWorkSize = BLOCK_SIZE * BLOCK_SIZE;
+	size_t globalWorkSize = localWorkSize * BLOCK_SIZE;
+
+	int status = CL_SUCCESS;
+
+	af_dtype typef;
+	af_get_type(&typef, dA);
+
+	int msize = 0;
+	if (typef == f64)
+		msize = sizeof(double);
+	else if (typef == f32)
+		msize = sizeof(float);
+	else;
+
+	//obteniendo las referencias cl_mem de los objetos af::array
+	cl_mem *d_A = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_WRITE, msize*order*order,
+		NULL, &status);
+	af_get_device_ptr((void**)d_A, Ac);
+
+	cl_mem *d_B = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_WRITE, msize*order,
+		NULL, &status);
+	af_get_device_ptr((void**)d_B, Bc);
+
+	size_t program_length = strlen(ldlt_source);
+
+
+	//creando el programa, construyendo el ejecutable y extrayendo el punto de entrada
+	// para el Kernel
+	cl_program program = clCreateProgramWithSource(af_context, 1, (const char **)&ldlt_source, &program_length, &status);
+	status = clBuildProgram(program, 1, &af_device_id, NULL, NULL, NULL);
+
+	char* kernelName;
+	if (typef == f64)
+		kernelName = "ldlt_c";
+	else if (typef == f32)
+		kernelName = "ldlt_c_sp";
+	else;
+	cl_kernel kernel = clCreateKernel(program, kernelName,
+		&status);
+
+	// estableciendo los argumentos
+	int i = 0;
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_A);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_B);
+	clSetKernelArg(kernel, i++, msize*localWorkSize, 0);
+	clSetKernelArg(kernel, i++, sizeof(cl_int), &order);
+
+	for (int j = 0; j < order; j++)
+	{
+		//Se modifican los elementos de la columna j a partir 
+		//de la fila j + 1.
+		//A(n,j)=A(n,j)/A(j,j) n>j
+		int sstep = 0;
+		clSetKernelArg(kernel, 4, sizeof(cl_int), &j);
+		clSetKernelArg(kernel, 5, sizeof(cl_int), &sstep);
+		clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+			&globalWorkSize, &localWorkSize, 0, NULL,
+			NULL);
+
+		//para una columna s, s > j, se modifican las filas 
+		//n >= s
+		//A(n, s) = A(n, s) - A(s, j)*A(n, j)*A(j, j) 
+		//s > j, n >= s
+		sstep++;
+		clSetKernelArg(kernel, 5, sizeof(cl_int), &sstep);
+		clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+			&globalWorkSize, &localWorkSize, 0, NULL,
+			NULL);
+	}
+
+	//luego de la factorización se tiene el sistema equivalente
+	//L*D*transpose(L)x=b que debe resolverse separadamente para
+	//Ly=b, luego para Dz=y y finalmente para transpose(L)x=z
+
+	//resolviendo Ly=b
+	int fstep = 2;
+	clSetKernelArg(kernel, 5, sizeof(cl_int), &fstep);
+	for (int j = 0; j < order; j++)
+	{
+		//para un paso j, modificará el vector b tal que :
+		//b[n] = b[n] - b[j] * L[n, j] n > j
+		clSetKernelArg(kernel, 4, sizeof(cl_int), &j);
+		clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+			&globalWorkSize, &localWorkSize, 0, NULL,
+			NULL);
+	}
+
+	//resolviendo Dz=y
+	fstep++;
+	clSetKernelArg(kernel, 5, sizeof(cl_int), &fstep);
+	clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+		&globalWorkSize, &localWorkSize, 0, NULL,
+		NULL);
+
+	//resolviendo transpose(L)x=z
+	fstep++;
+	clSetKernelArg(kernel, 5, sizeof(cl_int), &fstep);
+	for (int j = 0; j < order; j++)
+	{
+		//para un paso j modificará el elemento b[i] 
+		//tal que i = n - j:
+		//b[i] = b[i] - sumatoria{ j = i + 1,n }(z[j] * L[j, i])
+		//este valor será la solución final x[i] del 
+		//sistema Ax = b
+		clSetKernelArg(kernel, 4, sizeof(cl_int), &j);
+		clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+			&globalWorkSize, &localWorkSize, 0, NULL,
+			NULL);
+	}
+
+	//devolviendo el control de memoria af::array a ArrayFire 
+	af_unlock_array(Ac);
+	af_unlock_array(Bc);
+
+	// copiando el resultado en dC
+	af_copy_array(dC, Bc);
+
+	af_release_array(Ac);
+	af_release_array(Bc);
+}
+
+void AFire::fac_ldlt_c(af_array* L, af_array A) {
+	//1. Obteniendo el dispositivo, contexto y la cola usada por ArrayFire
+	//cl_context af_context;
+	static cl_context af_context = afcl::getContext();
+	static cl_device_id af_device_id = afcl::getDeviceId();
+	static cl_command_queue af_queue = afcl::getQueue();
+
+	//2. Obteniendo parámetros necesarios
+	//copia de A
+	af_array Ac;
+	af_copy_array(&Ac, A);
+
+	dim_t _order[AF_MAX_DIMS];
+	af_get_dims(&_order[0], &_order[1], &_order[2],
+		&_order[3], A);
+	size_t order = _order[0];
+
+	size_t localWorkSize = BLOCK_SIZE * BLOCK_SIZE;
+	size_t globalWorkSize = localWorkSize * BLOCK_SIZE;
+
+	int status = CL_SUCCESS;
+
+	af_dtype typef;
+	af_get_type(&typef, A);
+
+	int msize = 0;
+	if (typef == f64)
+		msize = sizeof(double);
+	else if (typef == f32)
+		msize = sizeof(float);
+	else;
+
+	//3.obteniendo las referencias cl_mem de los objetos af::array
+	cl_mem *d_A = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_WRITE, msize*order*order,
+		NULL, &status);
+	af_get_device_ptr((void**)d_A, Ac);
+
+	size_t program_length = strlen(ldlt_source);
+
+	//4.creando el programa, construyendo el ejecutable y extrayendo el punto de entrada
+	// para el Kernel
+	cl_program program = clCreateProgramWithSource(af_context, 1, (const char **)&ldlt_source, &program_length, &status);
+	status = clBuildProgram(program, 1, &af_device_id, NULL, NULL, NULL);
+
+	char* kernelName;
+	if (typef == f64)
+		kernelName = "ldlt_c";
+	else if (typef == f32)
+		kernelName = "ldlt_c_sp";
+	else;
+	cl_kernel kernel = clCreateKernel(program, kernelName,
+		&status);
+
+	// 5.estableciendo los argumentos
+	int i = 0;
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_A);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), 0);
+	clSetKernelArg(kernel, i++, msize*localWorkSize, 0);
+	clSetKernelArg(kernel, i++, sizeof(cl_int), &order);
+
+	//6.Ejecutando el kernel
+	for (int j = 0; j < order; j++)
+	{
+		//Se modifican los elementos de la columna j a partir 
+		//de la fila j + 1.
+		//A(n,j)=A(n,j)/A(j,j) n>j
+		int sstep = 0;
+		clSetKernelArg(kernel, 4, sizeof(cl_int), &j);
+		clSetKernelArg(kernel, 5, sizeof(cl_int), &sstep);
+		clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+			&globalWorkSize, &localWorkSize, 0, NULL,
+			NULL);
+
+		//para una columna s, s > j, se modifican las filas 
+		//n >= s
+		//A(n, s) = A(n, s) - A(s, j)*A(n, j)*A(j, j) 
+		//s > j, n >= s
+		sstep++;
+		clSetKernelArg(kernel, 5, sizeof(cl_int), &sstep);
+		clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+			&globalWorkSize, &localWorkSize, 0, NULL,
+			NULL);
+	}
+
+	//7. devolviendo el control de memoria af::array a ArrayFire 
+	af_unlock_array(Ac);
+
+	// copiando el resultado en dC
+	af_copy_array(L, Ac);
+
+	af_release_array(Ac);
 }
 
 void AFire::fac_sparse_ldlt_c(af_array elmA, af_array colA,

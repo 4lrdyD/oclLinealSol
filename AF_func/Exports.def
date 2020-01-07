@@ -13,6 +13,7 @@ sparse_sks_mat_vec_mul=?sparse_sks_mat_vec_mul@AFire@@SAXPEAPEAXPEAX11@Z
 
 SELgj_f=?SELgj_f@AFire@@SAXPEAPEAXPEAX1@Z
 SELgj_c=?SELgj_c@AFire@@SAXPEAPEAXPEAX1@Z 
+SELgj_cL=?SELgj_c@AFire@@SAXPEAPEAXPEAX@Z
 SELgj_f2d=?SELgj_f2d@AFire@@SAXPEAPEAXPEAX1@Z 
 SELgj_c2d=?SELgj_c2d@AFire@@SAXPEAPEAXPEAX1@Z 
 

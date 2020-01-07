@@ -338,7 +338,7 @@ int main_sparse_sks()//sparse_sks
 	return 0;
 }
 
-int main1()
+int main()
 {
 	double _M[] = { 4.,	4.,	4.,	2.,	6.,	7.,	2.,
 5.,	2.,	4.,	6.,	2.,	3.,	4.,
@@ -364,14 +364,14 @@ int main1()
 	af_print(M);
 	af_print(b);
 
+	af_array Ma;
+	af_join(&Ma, 1, M.get(), b.get());
+
+	af_print_array(Ma);
 	af_array mul;
-	AFire::SELgj_c(&mul, M.get(), b.get());
+	AFire::SELgj_c(&mul, Ma);
 	af_print_array(mul);
-
-	af_release_array(mul);
-	AFire::global_sync_test(&mul, M.get(), b.get());
-	af_print_array(mul);
-
+	af_print_array(Ma);
 	return 0;
 }
 
@@ -381,7 +381,7 @@ void sum(float *gC, float *gA, float *gB, int orden)
 		gC[id] = gA[id] + gB[id];
 	}
 }
-int main()
+int main1()
 {
 	int row_[] = { 0, 1, 4, 0, 1, 2, 3, 4, 1, 2,
 		5, 1, 3, 5, 0, 1, 4, 5, 6, 2, 3, 4, 5, 6,

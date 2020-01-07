@@ -1,5 +1,5 @@
 //==========================================
-//revisión 0.7.5 01-12-2019, 18:10, VS 2017
+//revisión 0.7.6 06-01-2020, 22:40, VS 2017
 //==========================================
 #pragma once
 #ifdef HEADER_EXPORTS
@@ -87,6 +87,15 @@ public:
 		*/
 		void SELgj_c(af_array* x, af_array A, af_array b);
 	static HEADER_API
+		/*Solución de un sistema de ecuaciones de la
+		forma Ax=b, usando el método de Gauss-Jordan
+		x: vector de salida que contendrá la solución
+		Ma: Matriz aumentada del sistema.
+		Las operaciones se realizarán en sitio
+		*/
+		void SELgj_c(af_array* x, af_array Ma);
+
+	static HEADER_API
 		void SELgj_fshr(af_array*, af_array, af_array);
 	static HEADER_API
 		void SELgj_f2d(af_array*, af_array, af_array);
@@ -139,7 +148,9 @@ public:
 
 	static HEADER_API
 		/*Factorización de cholesky de la matriz A
-		simétrica y definida positiva, la matriz de salida
+		simétrica y definida positiva, la matriz de
+		salida tendrá en su parte triangular inferior
+		la factorización tal que:
 		L cumple:
 		L*tranpose(L)=A*/
 		void fac_chol_c(af_array* L, af_array A);
