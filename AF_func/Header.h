@@ -1,5 +1,5 @@
 //==========================================
-//revisión 0.7.6 06-01-2020, 22:40, VS 2017
+//revisión 0.7.7 08-01-2020, 00:10, VS 2017
 //==========================================
 #pragma once
 #ifdef HEADER_EXPORTS
@@ -145,6 +145,16 @@ public:
 		b: Vector de constantes del sistema
 		*/
 		void SELchol_c(af_array* x, af_array A, af_array b);
+	static HEADER_API
+		/*Solución de un sistema de ecuaciones de la
+		forma Ax=b, con A simétrica y definida positiva.
+		L: factor L producto de la factorización de
+		   Cholesky, tal que L*transpose(L)=A
+		b: Vector de constantes del sistema
+		Se resuelve el sistema en sitio, i.e, b 
+		contendrá la solución del sistema al final
+		*/
+		void SELchol_c(af_array L, af_array b);
 
 	static HEADER_API
 		/*Factorización de cholesky de la matriz A
@@ -154,6 +164,13 @@ public:
 		L cumple:
 		L*tranpose(L)=A*/
 		void fac_chol_c(af_array* L, af_array A);
+	static HEADER_API
+		/*Factorización de cholesky en sitio 
+		de la matriz A simétrica y definida positiva,
+		la matriz tendrá en su parte triangular 
+		inferior la factorización L tal que:
+		L*tranpose(L)=A*/
+		void fac_chol_c(af_array A);
 
 	static HEADER_API
 		/*factorización de Cholesky aplicado a matrices
