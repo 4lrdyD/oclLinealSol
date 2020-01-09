@@ -1,5 +1,5 @@
 //==========================================
-//revisión 0.7.7 08-01-2020, 00:10, VS 2017
+//revisión 0.7.8 09-01-2020, 01:00, VS 2017
 //==========================================
 #pragma once
 #ifdef HEADER_EXPORTS
@@ -171,7 +171,38 @@ public:
 		inferior la factorización L tal que:
 		L*tranpose(L)=A*/
 		void fac_chol_c(af_array A);
-
+	static HEADER_API
+		/*Copia los elementos de A en el lugar
+		correspondiente de L, A y L son matrices
+		dipersas con sus tres componentes elm,
+		col y row; está función es especial para 
+		copiar los valores del campo de elementos
+		de una matriz dispersa A, en el lugar 
+		correspondiente del campo de elementos de 
+		la matriz dispersa L, está última producto
+		de una factorización simbólica.
+		El campo de elementos de L debería ser mayor
+		o igual en longitud al campo de elementos
+		de A, también, inicialmente, debería 
+		contener solo ceros, ver ayuda de la 
+		función fac_sparse_chol_c.
+		*/
+		void AFire::sparse_copy_A_to_initL(af_array elmA,
+			af_array colA, af_array rowA, af_array elmL,
+			af_array colL, af_array rowL);
+	static HEADER_API
+		/*Realiza la factorización de Cholesky en
+		sitio de la matriz A simétrica y definida
+		positiva, el argumento es la misma matriz A
+		en forma dispersa (campos elm, col y row). 
+		El campo de elementos deberá tener el suficiente 
+		tamaño para almacenar la factorización, i.e.
+		puede ser necesario una factorización 
+		simbólica previa, para determinar el espacio
+		adicional respecto al campo de elementos
+		inicial de A*/
+		void AFire::fac_sparse_chol_c(af_array elmL, af_array colL,
+			af_array rowL);
 	static HEADER_API
 		/*factorización de Cholesky aplicado a matrices
 		dispersas y simétricas:
@@ -252,6 +283,18 @@ public:
 		L debe ser introducido como argumento en su forma
 		dispersa (ver función fac_sparse_chol)*/
 		void SELchol_sparse_c(af_array* dC, af_array elmL,
+			af_array colL, af_array rowL, af_array dB);
+	static HEADER_API
+		/*Solución del sistema Ax=b, teniendo el factor
+		L en forma dispersa obtenido de la factorización
+		de cholesky
+
+		L debe ser introducido como argumento en su forma
+		dispersa (ver función fac_sparse_chol).
+		
+		Las operaciones se realizarán en sitio, b
+		contendrá la solución (al final)*/
+		void SELchol_sparse_c(af_array elmL,
 			af_array colL, af_array rowL, af_array dB);
 
 	static HEADER_API
