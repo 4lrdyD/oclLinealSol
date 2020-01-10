@@ -1,5 +1,5 @@
 //==========================================
-//revisión 0.9.9 09-01-2020, 01:00 VS 2017
+//revisión 1.0.0 10-01-2020, 00:30 VS 2017
 //==========================================
 
 #include "Header.h"
@@ -2943,6 +2943,7 @@ void AFire::SELchol_sparse_c(af_array elmL,
 	af_unlock_array(elmL);
 	af_unlock_array(colL);
 	af_unlock_array(rowL);
+	af_unlock_array(dB);
 }
 
 void AFire::fac_sparse_chol_sks(af_array elmA,
@@ -3173,6 +3174,119 @@ void AFire::SELchol_sparse_sks(af_array* dC, af_array elmL,
 	af_release_array(b);
 }
 
+void AFire::SELchol_sparse_sks(af_array elmL,
+	af_array idxL, af_array dB) {
+	//1. Obteniendo el dispositivo, contexto y la cola usada por ArrayFire
+	//cl_context af_context;
+	static cl_context af_context = afcl::getContext();
+	static cl_device_id af_device_id = afcl::getDeviceId();
+	static cl_command_queue af_queue = afcl::getQueue();
+
+	//2. Obteniendo parámetros necesarios
+
+	//longitud de los vectores
+	dim_t _order[AF_MAX_DIMS];
+	af_get_dims(&_order[0], &_order[1], &_order[2],
+		&_order[3], elmL);
+	size_t size_elmL = _order[0];
+
+	af_get_dims(&_order[0], &_order[1], &_order[2],
+		&_order[3], idxL);
+	size_t size_idxL = _order[0];
+
+	size_t localWorkSize = BLOCK_SIZE * BLOCK_SIZE;
+	size_t globalWorkSize = localWorkSize * BLOCK_SIZE;
+
+	int status = CL_SUCCESS;
+
+	af_dtype typef;
+	af_get_type(&typef, elmL);
+
+	int msize = 0;
+	if (typef == f64)
+		msize = sizeof(double);
+	else if (typef == f32)
+		msize = sizeof(float);
+	else;
+
+	//3.obteniendo las referencias cl_mem de los objetos af::array
+	cl_mem *d_elmL = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_ONLY, msize*size_elmL,
+		NULL, &status);
+	af_get_device_ptr((void**)d_elmL, elmL);
+
+	cl_mem *d_idxL = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_ONLY, sizeof(int)*size_idxL,
+		NULL, &status);
+	af_get_device_ptr((void**)d_idxL, idxL);
+
+	cl_mem d_b = (cl_mem)clCreateBuffer(af_context,
+		CL_MEM_READ_WRITE, msize*size_idxL,
+		NULL, &status);
+	af_get_device_ptr((void**)d_b, dB);
+
+	size_t program_length = strlen(Cholesky_source);
+
+	//4.creando el programa, construyendo el ejecutable y extrayendo el punto de entrada
+	// para el Kernel
+	cl_program program = clCreateProgramWithSource(af_context,
+		1, (const char **)&Cholesky_source, &program_length,
+		&status);
+	status = clBuildProgram(program, 1, &af_device_id,
+		NULL, NULL, NULL);
+
+	char* kernelName;
+	if (typef == f64)
+		kernelName = "chol_sparse_sks";
+	else if (typef == f32)
+		kernelName = "chol_sparse_sks_sp";
+	else;
+	cl_kernel kernel = clCreateKernel(program, kernelName,
+		&status);
+
+	cl_int kk = 0;
+	// 5.estableciendo los argumentos
+	int i = 0;
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_elmL);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_idxL);
+	clSetKernelArg(kernel, i++, sizeof(cl_int), &kk);
+	clSetKernelArg(kernel, i++, sizeof(cl_int), &size_idxL);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_b);
+	clSetKernelArg(kernel, i++, msize*localWorkSize, 0);
+
+	//6. ejecutando el kernel
+	//resolviendo el sistema Ly=b (y=transpose(L)*x)
+	cl_int sstep = 3;
+	clSetKernelArg(kernel, 7, sizeof(cl_int), &sstep);
+	for (cl_int j = 0; j < size_idxL - 1; j++) {
+
+		clSetKernelArg(kernel, 6, sizeof(cl_int), &j);
+		clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+			&globalWorkSize, &localWorkSize, 0, NULL,
+			NULL);
+	}
+	sstep++;
+	clSetKernelArg(kernel, 7, sizeof(cl_int), &sstep);
+	clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+		&globalWorkSize, &localWorkSize, 0, NULL,
+		NULL);
+
+	//resolviendo el sistema transpose(L)*x=y
+	sstep++;
+	clSetKernelArg(kernel, 7, sizeof(cl_int), &sstep);
+	for (cl_int j = 0; j < size_idxL; j++) {
+		clSetKernelArg(kernel, 6, sizeof(cl_int), &j);
+		clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+			&globalWorkSize, &localWorkSize, 0, NULL,
+			NULL);
+	}
+
+	//7. devolviendo el control de memoria af::array a ArrayFire 
+	af_unlock_array(elmL);
+	af_unlock_array(idxL);
+	af_unlock_array(dB);
+}
+
 //3. Factorización LDLT
 void AFire::SELldlt_c(af_array* dC, af_array dA, af_array dB) {
 	//Obteniendo el dispositivo, contexto y la cola usada por ArrayFire
@@ -3315,6 +3429,109 @@ void AFire::SELldlt_c(af_array* dC, af_array dA, af_array dB) {
 	af_release_array(Bc);
 }
 
+void AFire::SELldlt_c(af_array dA, af_array dB) {
+	//Obteniendo el dispositivo, contexto y la cola usada por ArrayFire
+	//cl_context af_context;
+	static cl_context af_context = afcl::getContext();
+	static cl_device_id af_device_id = afcl::getDeviceId();
+	static cl_command_queue af_queue = afcl::getQueue();
+
+	dim_t _order[AF_MAX_DIMS];
+	af_get_dims(&_order[0], &_order[1],
+		&_order[2], &_order[3], dA);
+	size_t order = _order[0];
+
+	size_t localWorkSize = BLOCK_SIZE * BLOCK_SIZE;
+	size_t globalWorkSize = localWorkSize * BLOCK_SIZE;
+
+	int status = CL_SUCCESS;
+
+	af_dtype typef;
+	af_get_type(&typef, dA);
+
+	int msize = 0;
+	if (typef == f64)
+		msize = sizeof(double);
+	else if (typef == f32)
+		msize = sizeof(float);
+	else;
+
+	//obteniendo las referencias cl_mem de los objetos af::array
+	cl_mem *d_A = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_ONLY, msize*order*order,
+		NULL, &status);
+	af_get_device_ptr((void**)d_A, dA);
+
+	cl_mem *d_B = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_WRITE, msize*order,
+		NULL, &status);
+	af_get_device_ptr((void**)d_B, dB);
+
+	size_t program_length = strlen(ldlt_source);
+
+
+	//creando el programa, construyendo el ejecutable y extrayendo el punto de entrada
+	// para el Kernel
+	cl_program program = clCreateProgramWithSource(af_context, 1, (const char **)&ldlt_source, &program_length, &status);
+	status = clBuildProgram(program, 1, &af_device_id, NULL, NULL, NULL);
+
+	char* kernelName;
+	if (typef == f64)
+		kernelName = "ldlt_c";
+	else if (typef == f32)
+		kernelName = "ldlt_c_sp";
+	else;
+	cl_kernel kernel = clCreateKernel(program, kernelName,
+		&status);
+
+	// estableciendo los argumentos
+	int i = 0;
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_A);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_B);
+	clSetKernelArg(kernel, i++, msize*localWorkSize, 0);
+	clSetKernelArg(kernel, i++, sizeof(cl_int), &order);
+
+	//resolviendo Ly=b
+	int fstep = 2;
+	clSetKernelArg(kernel, 5, sizeof(cl_int), &fstep);
+	for (int j = 0; j < order; j++)
+	{
+		//para un paso j, modificará el vector b tal que :
+		//b[n] = b[n] - b[j] * L[n, j] n > j
+		clSetKernelArg(kernel, 4, sizeof(cl_int), &j);
+		clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+			&globalWorkSize, &localWorkSize, 0, NULL,
+			NULL);
+	}
+
+	//resolviendo Dz=y
+	fstep++;
+	clSetKernelArg(kernel, 5, sizeof(cl_int), &fstep);
+	clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+		&globalWorkSize, &localWorkSize, 0, NULL,
+		NULL);
+
+	//resolviendo transpose(L)x=z
+	fstep++;
+	clSetKernelArg(kernel, 5, sizeof(cl_int), &fstep);
+	for (int j = 0; j < order; j++)
+	{
+		//para un paso j modificará el elemento b[i] 
+		//tal que i = n - j:
+		//b[i] = b[i] - sumatoria{ j = i + 1,n }(z[j] * L[j, i])
+		//este valor será la solución final x[i] del 
+		//sistema Ax = b
+		clSetKernelArg(kernel, 4, sizeof(cl_int), &j);
+		clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+			&globalWorkSize, &localWorkSize, 0, NULL,
+			NULL);
+	}
+
+	//devolviendo el control de memoria af::array a ArrayFire 
+	af_unlock_array(dA);
+	af_unlock_array(dB);
+}
+
 void AFire::fac_ldlt_c(af_array* L, af_array A) {
 	//1. Obteniendo el dispositivo, contexto y la cola usada por ArrayFire
 	//cl_context af_context;
@@ -3407,6 +3624,95 @@ void AFire::fac_ldlt_c(af_array* L, af_array A) {
 	af_copy_array(L, Ac);
 
 	af_release_array(Ac);
+}
+
+void AFire::fac_ldlt_c(af_array A) {
+	//1. Obteniendo el dispositivo, contexto y la cola usada por ArrayFire
+	//cl_context af_context;
+	static cl_context af_context = afcl::getContext();
+	static cl_device_id af_device_id = afcl::getDeviceId();
+	static cl_command_queue af_queue = afcl::getQueue();
+
+	//2. Obteniendo parámetros necesarios
+
+	dim_t _order[AF_MAX_DIMS];
+	af_get_dims(&_order[0], &_order[1], &_order[2],
+		&_order[3], A);
+	size_t order = _order[0];
+
+	size_t localWorkSize = BLOCK_SIZE * BLOCK_SIZE;
+	size_t globalWorkSize = localWorkSize * BLOCK_SIZE;
+
+	int status = CL_SUCCESS;
+
+	af_dtype typef;
+	af_get_type(&typef, A);
+
+	int msize = 0;
+	if (typef == f64)
+		msize = sizeof(double);
+	else if (typef == f32)
+		msize = sizeof(float);
+	else;
+
+	//3.obteniendo las referencias cl_mem de los objetos af::array
+	cl_mem *d_A = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_WRITE, msize*order*order,
+		NULL, &status);
+	af_get_device_ptr((void**)d_A, A);
+
+	size_t program_length = strlen(ldlt_source);
+
+	//4.creando el programa, construyendo el ejecutable y extrayendo el punto de entrada
+	// para el Kernel
+	cl_program program = clCreateProgramWithSource(
+		af_context, 1, (const char **)&ldlt_source,
+		&program_length, &status);
+	status = clBuildProgram(program, 1, &af_device_id,
+		NULL, NULL, NULL);
+
+	char* kernelName;
+	if (typef == f64)
+		kernelName = "ldlt_c";
+	else if (typef == f32)
+		kernelName = "ldlt_c_sp";
+	else;
+	cl_kernel kernel = clCreateKernel(program, kernelName,
+		&status);
+
+	// 5.estableciendo los argumentos
+	int i = 0;
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_A);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), 0);
+	clSetKernelArg(kernel, i++, msize*localWorkSize, 0);
+	clSetKernelArg(kernel, i++, sizeof(cl_int), &order);
+
+	//6.Ejecutando el kernel
+	for (int j = 0; j < order; j++)
+	{
+		//Se modifican los elementos de la columna j a partir 
+		//de la fila j + 1.
+		//A(n,j)=A(n,j)/A(j,j) n>j
+		int sstep = 0;
+		clSetKernelArg(kernel, 4, sizeof(cl_int), &j);
+		clSetKernelArg(kernel, 5, sizeof(cl_int), &sstep);
+		clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+			&globalWorkSize, &localWorkSize, 0, NULL,
+			NULL);
+
+		//para una columna s, s > j, se modifican las filas 
+		//n >= s
+		//A(n, s) = A(n, s) - A(s, j)*A(n, j)*A(j, j) 
+		//s > j, n >= s
+		sstep++;
+		clSetKernelArg(kernel, 5, sizeof(cl_int), &sstep);
+		clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+			&globalWorkSize, &localWorkSize, 0, NULL,
+			NULL);
+	}
+
+	//7. devolviendo el control de memoria af::array a ArrayFire 
+	af_unlock_array(A);
 }
 
 void AFire::fac_sparse_ldlt_c(af_array elmA, af_array colA,

@@ -1,5 +1,5 @@
 //==========================================
-//revisión 0.7.8 09-01-2020, 01:00, VS 2017
+//revisión 0.7.9 10-01-2020, 00:30, VS 2017
 //==========================================
 #pragma once
 #ifdef HEADER_EXPORTS
@@ -392,6 +392,15 @@ public:
 		almacenada en formato SKS*/
 		void SELchol_sparse_sks(af_array* dC, af_array elmL,
 			af_array idxL, af_array dB);
+	static HEADER_API
+		/*Solución del sistema Ax=b, para una
+		matriz simétrica usando la factorización
+		de cholesky, teniendo la factorización de A,
+		almacenada en formato SKS.
+		Las operaciones se realizarán en sitio, i.e,
+		b contendrá al final la solución*/
+		void SELchol_sparse_sks(af_array elmL,
+			af_array idxL, af_array dB);
 	//--------
 	//2.4 LDLT
 	//--------
@@ -403,6 +412,16 @@ public:
 		b: Vector de constantes del sistema
 		*/
 		void SELldlt_c(af_array* x, af_array A, af_array b);
+	static HEADER_API
+		/*Solución de un sistema de ecuaciones de la
+		forma Ax=b, con A simétrica.
+		L: factor L producto de la factorización
+		   LDLT, ver fac_ldlt_c
+		b: Vector de constantes del sistema
+		Se resuelve el sistema en sitio, i.e, b
+		contendrá la solución del sistema al final
+		*/
+		void SELldlt_c(af_array L, af_array b);
 
 	static HEADER_API
 		/*Factorización LDLT de la matriz A
@@ -411,7 +430,14 @@ public:
 		de L y D que cumplen:
 		L*D*tranpose(L)=A*/
 		void fac_ldlt_c(af_array* L, af_array A);
-
+	static HEADER_API
+		/*Factorización LDLT en sitio
+		de la matriz A simétrica,
+		la matriz tendrá en su parte triangular
+		inferior los elementos L y D de 
+		la factorización tal que:
+		L*D*tranpose(L)=A*/
+		void fac_ldlt_c(af_array A);
 	static HEADER_API
 		/*factorización LDLt aplicado a matrices
 		dispersas y simétricas:
