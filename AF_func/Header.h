@@ -1,5 +1,5 @@
 //==========================================
-//revisión 0.7.9 10-01-2020, 00:30, VS 2017
+//revisión 0.8.0 10-01-2020, 17:15, VS 2017
 //==========================================
 #pragma once
 #ifdef HEADER_EXPORTS
@@ -387,14 +387,16 @@ public:
 
 	static HEADER_API
 		/*Solución del sistema Ax=b, para una
-		matriz simétrica usando la factorización
+		matriz simétrica y definida positiva,
+		usando la factorización
 		de cholesky, teniendo la factorización de A,
 		almacenada en formato SKS*/
 		void SELchol_sparse_sks(af_array* dC, af_array elmL,
 			af_array idxL, af_array dB);
 	static HEADER_API
 		/*Solución del sistema Ax=b, para una
-		matriz simétrica usando la factorización
+		matriz simétrica y definida positiva,
+		usando la factorización
 		de cholesky, teniendo la factorización de A,
 		almacenada en formato SKS.
 		Las operaciones se realizarán en sitio, i.e,
@@ -438,6 +440,19 @@ public:
 		la factorización tal que:
 		L*D*tranpose(L)=A*/
 		void fac_ldlt_c(af_array A);
+	static HEADER_API
+		/*Realiza la factorización LDLT en
+		sitio de la matriz A simétrica,
+		el argumento es la misma matriz A
+		en forma dispersa (campos elm, col y row).
+		El campo de elementos deberá tener el suficiente
+		tamaño para almacenar la factorización, i.e.
+		puede ser necesario una factorización
+		simbólica previa, para determinar el espacio
+		adicional respecto al campo de elementos
+		inicial de A*/
+		void AFire::fac_sparse_ldlt_c(af_array elmL, af_array colL,
+			af_array rowL);
 	static HEADER_API
 		/*factorización LDLt aplicado a matrices
 		dispersas y simétricas:
@@ -484,6 +499,18 @@ public:
 		dispersa (ver función fac_sparse_chol)*/
 		void SELldlt_sparse_c(af_array* dC, af_array elmL,
 			af_array colL, af_array rowL, af_array dB);
+	static HEADER_API
+		/*Solución del sistema Ax=b, teniendo el factor
+		L en forma dispersa obtenido de la factorización
+		LDLT
+
+		L debe ser introducido como argumento en su forma
+		dispersa (ver función fac_sparse_ldlt).
+
+		Las operaciones se realizarán en sitio, b
+		contendrá la solución (al final)*/
+		void SELldlt_sparse_c(af_array elmL,
+			af_array colL, af_array rowL, af_array dB);
 
 	static HEADER_API
 		/*Implace
@@ -501,6 +528,15 @@ public:
 		LDLt, teniendo la factorización de A,
 		almacenada en formato SKS*/
 		void SELldlt_sparse_sks(af_array* dC, af_array elmL,
+			af_array idxL, af_array dB);
+	static HEADER_API
+		/*Solución del sistema Ax=b, para una
+		matriz simétrica usando la factorización
+		LDLT, teniendo la factorización de A,
+		almacenada en formato SKS.
+		Las operaciones se realizarán en sitio, i.e,
+		b contendrá al final la solución*/
+		void SELldlt_sparse_sks(af_array elmL,
 			af_array idxL, af_array dB);
 	//---------------------------
 	//3 funciones de prueba y otros

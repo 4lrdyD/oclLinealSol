@@ -40,11 +40,14 @@ fac_ldlt_c=?fac_ldlt_c@AFire@@SAXPEAPEAXPEAX@Z
 fac_ldlt_cL=?fac_ldlt_c@AFire@@SAXPEAX@Z 
 SELldlt_c=?SELldlt_c@AFire@@SAXPEAPEAXPEAX1@Z 
 SELldlt_cL=?SELldlt_c@AFire@@SAXPEAX0@Z 
-fac_sparse_ldlt_c=?fac_sparse_ldlt_c@AFire@@SAXPEAX00000@Z 
+fac_sparse_ldlt_c=?fac_sparse_ldlt_c@AFire@@SAXPEAX00000@Z
+fac_sparse_ldlt_cL=?fac_sparse_ldlt_c@AFire@@SAXPEAX00@Z 
 SELldlt_sparse_c=?SELldlt_sparse_c@AFire@@SAXPEAPEAXPEAX111111@Z
-SELldlt_sparse_L=?SELldlt_sparse_c@AFire@@SAXPEAPEAXPEAX111@Z 
+SELldlt_sparse_L=?SELldlt_sparse_c@AFire@@SAXPEAPEAXPEAX111@Z
+SELldlt_sparse_cL=?SELldlt_sparse_c@AFire@@SAXPEAX000@Z 
 fac_sparse_ldlt_sks=?fac_sparse_ldlt_sks@AFire@@SAXPEAX0@Z 
 SELldlt_sparse_sks=?SELldlt_sparse_sks@AFire@@SAXPEAPEAXPEAX11@Z
+SELldlt_sparse_sksL=?SELldlt_sparse_sks@AFire@@SAXPEAX00@Z 
 
 
 SELgj_c_test=?SELgj_c_test@AFire@@SANPEAX0@Z
