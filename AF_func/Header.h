@@ -542,7 +542,7 @@ public:
 	//3 funciones de prueba y otros
 	//---------------------------
 	static HEADER_API void test_1(af::array &, af::array &);
-	static HEADER_API void test_2(af_array);
+	static HEADER_API void test_2(af_array*, af_array, af_array);
 	static HEADER_API
 		void prueba_shr(af_array*, af_array, af_array);
 	static HEADER_API

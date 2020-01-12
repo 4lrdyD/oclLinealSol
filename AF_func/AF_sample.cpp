@@ -4671,7 +4671,7 @@ void AFire::test_1(af::array &A, af::array &B)
 	af::copy(B, A, idx);
 }
 
-void AFire::test_2(af_array dA)
+void AFire::test_2(af_array* out, af_array a, af_array b)
 {
 	//1. Obteniendo el dispositivo, contexto y la cola usada por ArrayFire
 	//cl_context af_context;
@@ -4684,12 +4684,8 @@ void AFire::test_2(af_array dA)
 	//longitud de los vectores
 	dim_t _order[AF_MAX_DIMS];
 	af_get_dims(&_order[0], &_order[1], &_order[2],
-		&_order[3], dA);
+		&_order[3], a);
 	size_t size_elmA = _order[0];
-
-	af_array zeros;
-	dim_t size[] = { size_elmA };
-	af_constant(&zeros, 0, 1, size, s32);
 
 	size_t localWorkSize = BLOCK_SIZE * BLOCK_SIZE;
 	size_t globalWorkSize = localWorkSize * BLOCK_SIZE;
@@ -4697,7 +4693,11 @@ void AFire::test_2(af_array dA)
 	int status = CL_SUCCESS;
 
 	af_dtype typef;
-	af_get_type(&typef, dA);
+	af_get_type(&typef, a);
+
+	af_array result;
+	dim_t d_order[] = { size_elmA };
+	af_constant(&result, 0, 1, d_order, typef);
 
 	int msize = 0;
 	if (typef == f64)
@@ -4708,14 +4708,19 @@ void AFire::test_2(af_array dA)
 
 	//3.obteniendo las referencias cl_mem de los objetos af::array
 	cl_mem *d_A = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_ONLY, msize*size_elmA*size_elmA,
+		NULL, &status);
+	af_get_device_ptr((void**)d_A, a);
+
+	cl_mem *d_B = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_ONLY, msize*size_elmA,
+		NULL, &status);
+	af_get_device_ptr((void**)d_B, b);
+
+	cl_mem *d_r = (cl_mem*)clCreateBuffer(af_context,
 		CL_MEM_READ_WRITE, msize*size_elmA,
 		NULL, &status);
-	af_get_device_ptr((void**)d_A, dA);
-
-	cl_mem *d_zeros = (cl_mem*)clCreateBuffer(af_context,
-		CL_MEM_READ_WRITE, sizeof(int)*size_elmA,
-		NULL, &status);
-	af_get_device_ptr((void**)d_zeros, zeros);
+	af_get_device_ptr((void**)d_r, result);
 
 	size_t program_length = strlen(gc_source);
 
@@ -4729,9 +4734,9 @@ void AFire::test_2(af_array dA)
 
 	char* kernelName;
 	if (typef == f64)
-		kernelName = "prueba_1";
+		kernelName = "gconj_c";
 	else if (typef == f32)
-		kernelName = "prueba_1_sp";
+		kernelName = "gconj_c_sp";
 	else;
 	cl_kernel kernel = clCreateKernel(program, kernelName,
 		&status);
@@ -4739,7 +4744,9 @@ void AFire::test_2(af_array dA)
 	// 5.estableciendo los argumentos
 	int i = 0;
 	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_A);
-	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_zeros);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_B);
+	clSetKernelArg(kernel, i++, msize*localWorkSize, 0);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_r);
 	clSetKernelArg(kernel, i++, sizeof(cl_int), &size_elmA);
 
 	//6. ejecutando el kernel
@@ -4747,12 +4754,13 @@ void AFire::test_2(af_array dA)
 		&globalWorkSize, &localWorkSize, 0, NULL,
 		NULL);
 
-	af_print_array(zeros);
+	//copiando solución
+	af_copy_array(out, result);
 	//7. devolviendo el control de memoria af::array a ArrayFire 
-	af_unlock_array(dA);
-	af_unlock_array(zeros);
-
-	af_release_array(zeros);
+	af_unlock_array(a);
+	af_unlock_array(b);
+	
+	af_release_array(result);
 }
 
 void AFire::global_sync_test(af_array* dC, af_array dA,
