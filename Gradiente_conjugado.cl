@@ -1,6 +1,6 @@
 /*
 =========================================
-revisión 0.0.4 12-01-2020, 00:15 VS 2017
+revisión 0.0.5 14-01-2020, 00:50 VS 2017
 =========================================
 */
 /* Solución de un sistema de ecuaciones, usando 
@@ -58,6 +58,21 @@ void sparse_mat_vec_mul2_sks_sp(__global float* elmA,
 
 //double
 double atom_add_double(__global double* address, double val);
+void mat_vec_mul(__global double* A, __global double* b,
+	__local double* partialSum, __global double* result,
+	int order);
+void mat_vec_mul_sub(__global double* A, __global double* x0,
+	__global double* b, __local double* partialSum,
+	__global double* r, int order);
+void vec_vec_mul(__global double* a, __global double* b,
+	__local double* partialSum, __global double* result,
+	int size);
+void vec_vec_mul1(__global double* a, __global double* b,
+	__local double* partialSum, __global double* result,
+	int size);
+void norm_euclid_pow2(__global double* v,
+	__global double* norm, __local double* partialSum,
+	int size);
 void sparse_mat_vec_mul1(__global double* elmA,
 	__global int* colA, __global int* rowA, __global double* b,
 	__global double* c, int order, __local double* partialSum);
@@ -530,48 +545,171 @@ void sparse_mat_vec_mul2_sks_sp(__global float* elmA,
 /*Kernel que concibe los elementos de A, como ordenados por
 columna simple precisión*/
 __kernel void
-gconj_c(__global double* elmA, __global int* colA,
-	__global int* rowA, __global double* b, __global double* c,
-	__local double* partialSum, int order, int step, int sstep)
+gconj_c(__global double* A, __global double* b,
+	__global double* r, __global double* a,
+	__global double* z,__global double* p,
+	__local double* partialSum,
+	__global double* norm_pow2,
+	__global int* key,
+	int order)
 {
-	/*//la iteración principal se realiza en el host
-
-	//multiplicación de matriz por vector
-	if (sstep == 0) {
-		Chol_1_csp(A, order, step);
-	}
-	//se modificará las columnas siguientes a la columna
-	//implicada
-	else if (sstep==1) {
-		Chol_2_csp(A, order, step);
-	}
-
-	//una vez usada las funciones anteriores todavía es
-	//necesario modificar la diagonal D[i]=sqrt(D[i]) para
-	//concluir la factorización
-	else if (sstep==2){
-		Chol_3_csp(A, order);
+	int tgx = get_global_id(0);
+	//calculará r-=a.*z y el cuadrado de la norma de r
+	if (key[0] == 0) {
+		double val = a[0]; 
+		for (int x = tgx; x < order;
+			x += get_global_size(0)) 
+			r[x] -= val * z[x];
+		norm_euclid_pow2(r, norm_pow2, partialSum, order);
+		//sumando uno a key
+		if (tgx == 0)
+			key[0]++;
 	}
 
-	///hasta aqui la factorización esta concluida, la parte
-	//triangular inferior de A contendrá la factorización de
-	//cholesky es decir L
-	//desde aqui se procederá a solucionar el sistema
-	//L*transpose(L)x=b
+	//else if
 
-	//se resolverá el sistema Ly=b, y=transpose(L)*x
-	else if (sstep==3){
-		Chol_4_csp(A, b, order, step);
-	}
-	else if (sstep == 4) {
-		Chol_5_csp(A, b, order);
-	}
+	//mat_vec_mul_sub(A, b, b, partialSum, a, order);
+}
 
-	//se resolverá el sistema transpose(L)*x=y
-	//"y" ya debe haberse obtenido usando la función anterior
-	else{
-		Chol_6_csp(A, b, order, step, partialSum);
-	}*/
+//result=Ab (A:matriz nxn, b:vector n)
+void mat_vec_mul(__global double* A, __global double* b,
+	__local double* partialSum, __global double* result,
+	int order) {
+	//índices de hilo (local) y de grupo
+	int tx = get_local_id(0);
+	int bx = get_group_id(0);
+
+	for (int y = bx; y < order; y += get_num_groups(0)) {
+		double sum = 0;
+		//fila de A, determinada por y
+		__global double* row = A + y * order;
+		for (int x = tx; x < order; x += get_local_size(0))
+			sum += row[x] * b[x];
+		partialSum[tx] = sum;
+		//suma por reducción en paralelo
+		for (int stride = get_local_size(0) / 2;
+			stride > 0; stride /= 2) {
+			//sincronizando
+			barrier(CLK_LOCAL_MEM_FENCE);
+			if (tx < stride)
+				partialSum[tx] += partialSum[tx + stride];
+		}
+		//solo un hilo realiza la escritura
+		if (tx == 0)
+			result[y] = partialSum[0];
+	}
+}
+
+//r=b-Ax0 (A:matriz nxn, b,x0:vectores n)
+void mat_vec_mul_sub(__global double* A, __global double* x0,
+	__global double* b,__local double* partialSum,
+	__global double* r, int order) {
+	//índices de hilo (local) y de grupo
+	int tx = get_local_id(0);
+	int bx = get_group_id(0);
+
+	for (int y = bx; y < order; y += get_num_groups(0)) {
+		double sum = 0;
+		//fila de A, determinada por y
+		__global double* row = A + y * order;
+		for (int x = tx; x < order; x += get_local_size(0))
+			sum += row[x] * x0[x];
+		partialSum[tx] = sum;
+		//suma por reducción en paralelo
+		for (int stride = get_local_size(0) / 2;
+			stride > 0; stride /= 2) {
+			//sincronizando
+			barrier(CLK_LOCAL_MEM_FENCE);
+			if (tx < stride)
+				partialSum[tx] += partialSum[tx + stride];
+		}
+		//solo un hilo realiza la escritura
+		if (tx == 0)
+			r[y] = b[y] - partialSum[0];
+	}
+}
+
+void vec_vec_mul(__global double* a, __global double* b,
+	__local double* partialSum, __global double* result,
+	int size) {
+	//índices de hilo (local) y de grupo
+	int tx = get_local_id(0);
+	int bx = get_group_id(0);
+	//solo se usará un grupo
+	if (bx == 0) {
+		double sum = 0;
+		for (int x = tx; x < size; x += get_local_size(0))
+			sum += a[x] * b[x];
+		partialSum[tx] = sum;
+		//suma por reducción en paralelo
+		for (int stride = get_local_size(0) / 2;
+			stride > 0; stride /= 2) {
+			//sincronizando
+			barrier(CLK_LOCAL_MEM_FENCE);
+			if (tx < stride)
+				partialSum[tx] += partialSum[tx + stride];
+		}
+		//solo un hilo realiz la escritura
+		if (tx == 0)
+			result[0] = partialSum[0];
+	}
+}
+
+void vec_vec_mul1(__global double* a, __global double* b,
+	__local double* partialSum, __global double* result,
+	int size) {
+	//índices de hilo (local y global) y de grupo
+	int tx = get_local_id(0);
+	int tgx = get_global_id(0);
+	int bx = get_group_id(0);
+	//para almacenar una suma parcial
+	double sum = 0;
+	for (int x = tgx; x < size; x += get_global_size(0)) {
+		sum += a[x] * b[x];
+	}
+	partialSum[tx] = sum;
+	//suma por reducción en paralelo
+	for (int stride = get_local_size(0) / 2;
+		stride > 0; stride /= 2) {
+		//sincronizando
+		barrier(CLK_LOCAL_MEM_FENCE);
+		if (tx < stride)
+			partialSum[tx] += partialSum[tx + stride];
+	}
+	//solo un hilo realiz la escritura
+	if (tx == 0)
+		//ya que varios bloques tienen una suma parcial
+		//necesitamos acumular usando la función atómica
+		atom_add_float(&(result[0]), partialSum[0]);
+}
+
+//calculará el cuadrado de la norma euclidea de v
+void norm_euclid_pow2(__global double* v,
+	__global double* norm,__local double* partialSum,
+	int size) {
+	//índices de hilo (local y global) y de grupo
+	int tx = get_local_id(0);
+	int tgx = get_global_id(0);
+	int bx = get_group_id(0);
+	//para almacenar una suma parcial
+	double sum = 0;
+	for (int x = tgx; x < size; x += get_global_size(0)) {
+		sum += pown(v[x], 2);
+	}
+	partialSum[tx] = sum;
+	//suma por reducción en paralelo
+	for (int stride = get_local_size(0) / 2;
+		stride > 0; stride /= 2) {
+		//sincronizando
+		barrier(CLK_LOCAL_MEM_FENCE);
+		if (tx < stride)
+			partialSum[tx] += partialSum[tx + stride];
+	}
+	//solo un hilo realiz la escritura
+	if (tx == 0) 
+		//ya que varios bloques tienen una suma parcial
+		//necesitamos acumular usando la función atómica
+		atom_add_double(&(norm[0]), partialSum[0]);
 }
 
 

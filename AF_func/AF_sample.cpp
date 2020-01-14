@@ -4671,7 +4671,7 @@ void AFire::test_1(af::array &A, af::array &B)
 	af::copy(B, A, idx);
 }
 
-void AFire::test_2(af_array* out, af_array a, af_array b)
+void AFire::test_2(af_array* out, af_array A, af_array b)
 {
 	//1. Obteniendo el dispositivo, contexto y la cola usada por ArrayFire
 	//cl_context af_context;
@@ -4684,7 +4684,7 @@ void AFire::test_2(af_array* out, af_array a, af_array b)
 	//longitud de los vectores
 	dim_t _order[AF_MAX_DIMS];
 	af_get_dims(&_order[0], &_order[1], &_order[2],
-		&_order[3], a);
+		&_order[3], A);
 	size_t size_elmA = _order[0];
 
 	size_t localWorkSize = BLOCK_SIZE * BLOCK_SIZE;
@@ -4693,11 +4693,22 @@ void AFire::test_2(af_array* out, af_array a, af_array b)
 	int status = CL_SUCCESS;
 
 	af_dtype typef;
-	af_get_type(&typef, a);
+	af_get_type(&typef, A);
 
-	af_array result;
-	dim_t d_order[] = { size_elmA };
-	af_constant(&result, 0, 1, d_order, typef);
+	//r,a,z,p,norm_ep2, key
+	af_array r;
+	af_array a;
+	af_array z;
+	af_array p;
+	af_array norm_ep2;
+	af_array key;
+	af_copy_array(&r, b);
+	af_copy_array(&z, b);
+	af_copy_array(&p, b);
+	dim_t d_order[] = { 1 };
+	af_constant(&a, 2, 1, d_order, typef);
+	af_constant(&norm_ep2, 0, 1, d_order, typef);
+	af_constant(&key, 0, 1, d_order, s32);
 
 	int msize = 0;
 	if (typef == f64)
@@ -4710,17 +4721,42 @@ void AFire::test_2(af_array* out, af_array a, af_array b)
 	cl_mem *d_A = (cl_mem*)clCreateBuffer(af_context,
 		CL_MEM_READ_ONLY, msize*size_elmA*size_elmA,
 		NULL, &status);
-	af_get_device_ptr((void**)d_A, a);
+	af_get_device_ptr((void**)d_A, A);
 
 	cl_mem *d_B = (cl_mem*)clCreateBuffer(af_context,
-		CL_MEM_READ_ONLY, msize*size_elmA,
+		CL_MEM_READ_WRITE, msize*size_elmA,
 		NULL, &status);
 	af_get_device_ptr((void**)d_B, b);
 
 	cl_mem *d_r = (cl_mem*)clCreateBuffer(af_context,
 		CL_MEM_READ_WRITE, msize*size_elmA,
 		NULL, &status);
-	af_get_device_ptr((void**)d_r, result);
+	af_get_device_ptr((void**)d_r, r);
+
+	cl_mem *d_a = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_WRITE, msize,
+		NULL, &status);
+	af_get_device_ptr((void**)d_a, a);
+
+	cl_mem *d_z = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_WRITE, msize*size_elmA,
+		NULL, &status);
+	af_get_device_ptr((void**)d_z, z);
+
+	cl_mem *d_p = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_WRITE, msize*size_elmA,
+		NULL, &status);
+	af_get_device_ptr((void**)d_p, p);
+
+	cl_mem *d_n = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_WRITE_ONLY, msize,
+		NULL, &status);
+	af_get_device_ptr((void**)d_n, norm_ep2);
+
+	cl_mem *d_key = (cl_mem*)clCreateBuffer(af_context,
+		CL_MEM_READ_WRITE, sizeof(int),
+		NULL, &status);
+	af_get_device_ptr((void**)d_key, key);
 
 	size_t program_length = strlen(gc_source);
 
@@ -4745,22 +4781,47 @@ void AFire::test_2(af_array* out, af_array a, af_array b)
 	int i = 0;
 	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_A);
 	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_B);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_r);//r
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_a);//a
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_z);//z
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_p);//p
 	clSetKernelArg(kernel, i++, msize*localWorkSize, 0);
-	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_r);
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_n);//norm
+	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_key);
 	clSetKernelArg(kernel, i++, sizeof(cl_int), &size_elmA);
 
 	//6. ejecutando el kernel
 	clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
 		&globalWorkSize, &localWorkSize, 0, NULL,
 		NULL);
-
-	//copiando solución
-	af_copy_array(out, result);
-	//7. devolviendo el control de memoria af::array a ArrayFire 
-	af_unlock_array(a);
-	af_unlock_array(b);
 	
-	af_release_array(result);
+	//copiando solución
+	af_copy_array(out, r);
+	//7. devolviendo el control de memoria af::array a ArrayFire 
+	af_unlock_array(A);
+	af_unlock_array(b);
+	af_unlock_array(r);
+	af_unlock_array(a);
+	af_unlock_array(z);
+	af_unlock_array(p);
+	af_unlock_array(norm_ep2);
+	af_unlock_array(key);
+
+	//impresiones
+	af_print_array(key);
+	int norm1;
+	af_get_scalar(&norm1, key);
+	std::cout << norm1 << std::endl;
+
+	//af_get_scalar(&norm1, key);
+	//std::cout << norm1[0] << std::endl;
+	
+	af_release_array(r);
+	af_release_array(a);
+	af_release_array(z);
+	af_release_array(p);
+	af_release_array(norm_ep2);
+	af_release_array(key);
 }
 
 void AFire::global_sync_test(af_array* dC, af_array dA,
