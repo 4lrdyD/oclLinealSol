@@ -1,6 +1,6 @@
 /*
 =========================================
-revisión 0.0.5 14-01-2020, 00:50 VS 2017
+revisión 0.0.6 15-01-2020, 00:20 VS 2017
 =========================================
 */
 /* Solución de un sistema de ecuaciones, usando 
@@ -65,9 +65,6 @@ void mat_vec_mul_sub(__global double* A, __global double* x0,
 	__global double* b, __local double* partialSum,
 	__global double* r, int order);
 void vec_vec_mul(__global double* a, __global double* b,
-	__local double* partialSum, __global double* result,
-	int size);
-void vec_vec_mul1(__global double* a, __global double* b,
 	__local double* partialSum, __global double* result,
 	int size);
 void norm_euclid_pow2(__global double* v,
@@ -550,25 +547,84 @@ gconj_c(__global double* A, __global double* b,
 	__global double* z,__global double* p,
 	__local double* partialSum,
 	__global double* norm_pow2,
-	__global int* key,
-	int order)
+	int key, int order)
 {
 	int tgx = get_global_id(0);
+
 	//calculará r-=a.*z y el cuadrado de la norma de r
-	if (key[0] == 0) {
-		double val = a[0]; 
+	if (key == 0) {
+		double val = a[0];
 		for (int x = tgx; x < order;
-			x += get_global_size(0)) 
+			x += get_global_size(0))
 			r[x] -= val * z[x];
 		norm_euclid_pow2(r, norm_pow2, partialSum, order);
-		//sumando uno a key
-		if (tgx == 0)
-			key[0]++;
 	}
 
-	//else if
+	//calculará el producto escalar de p y z y lo 
+	//almacenará momentaneamente en norm_pow2 y reiniciará
+	//a a cero.
+	else if (key == 1) {
+		vec_vec_mul(p, z, partialSum, norm_pow2, order);
+		if (tgx == 0)
+			a[0] = 0;
+	}
+	//calculará el producto escalar de r y z y lo 
+	//almacenará momentaneamente en a
+	else if (key == 2)
+		vec_vec_mul(r, z, partialSum, a, order);
 
-	//mat_vec_mul_sub(A, b, b, partialSum, a, order);
+	//calculará p=r+B.*p, B=-(r.z)/(p.z), el numerador
+	//y denominador son valores que se calcularon
+	// con key igual a 2 y 1 respectivamente
+	else if (key == 3) {
+		double val = -a[0] / norm_pow2[0];
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			p[x] = r[x] + val * p[x];
+	}
+
+	//calculará z=A*p
+	else if (key == 4)
+		mat_vec_mul(A, b, partialSum, z, order);
+
+	//calculará el producto escalar r.p y lo almacenará
+	//en a
+	else if (key == 5)
+		vec_vec_mul(r, p, partialSum, a, order);
+
+	//guardará el valor final de a y reiniciará 
+	//norm_pow2 a cero. a=(r.p)/(p.z) el numerador
+	//y denominador son valores que se calcularon
+	// con key igual a 5 y 1 respectivamente, key=1 deberá
+	//ser llamado nuevamente para el denominador ya que p
+	//y z se actualizaron despues de la primera llamada
+	else if (key == 6) {
+		if (tgx == 0) {
+			a[0] /= norm_pow2[0];
+			norm_pow2[0] = 0;
+		}
+	}
+
+	//calculará b+=a.*p,  
+	else if (key == 7) {
+		double val = a[0];
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			b[x] += val * p[x];
+	}
+
+	//calculará r=b-A*b
+	else if (key == 8)
+		mat_vec_mul_sub(A, b, b, partialSum, r, order);
+
+	//calculará z=A*r y copiará r en p
+	else if (key == 9) {
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			p[x] = r[x];
+		mat_vec_mul(A, r, partialSum, z, order);
+	}
+	else;
 }
 
 //result=Ab (A:matriz nxn, b:vector n)
@@ -629,33 +685,8 @@ void mat_vec_mul_sub(__global double* A, __global double* x0,
 	}
 }
 
+//result=a.b (producto escalar)
 void vec_vec_mul(__global double* a, __global double* b,
-	__local double* partialSum, __global double* result,
-	int size) {
-	//índices de hilo (local) y de grupo
-	int tx = get_local_id(0);
-	int bx = get_group_id(0);
-	//solo se usará un grupo
-	if (bx == 0) {
-		double sum = 0;
-		for (int x = tx; x < size; x += get_local_size(0))
-			sum += a[x] * b[x];
-		partialSum[tx] = sum;
-		//suma por reducción en paralelo
-		for (int stride = get_local_size(0) / 2;
-			stride > 0; stride /= 2) {
-			//sincronizando
-			barrier(CLK_LOCAL_MEM_FENCE);
-			if (tx < stride)
-				partialSum[tx] += partialSum[tx + stride];
-		}
-		//solo un hilo realiz la escritura
-		if (tx == 0)
-			result[0] = partialSum[0];
-	}
-}
-
-void vec_vec_mul1(__global double* a, __global double* b,
 	__local double* partialSum, __global double* result,
 	int size) {
 	//índices de hilo (local y global) y de grupo
@@ -680,7 +711,7 @@ void vec_vec_mul1(__global double* a, __global double* b,
 	if (tx == 0)
 		//ya que varios bloques tienen una suma parcial
 		//necesitamos acumular usando la función atómica
-		atom_add_float(&(result[0]), partialSum[0]);
+		atom_add_double(&(result[0]), partialSum[0]);
 }
 
 //calculará el cuadrado de la norma euclidea de v

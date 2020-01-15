@@ -4701,14 +4701,12 @@ void AFire::test_2(af_array* out, af_array A, af_array b)
 	af_array z;
 	af_array p;
 	af_array norm_ep2;
-	af_array key;
 	af_copy_array(&r, b);
 	af_copy_array(&z, b);
 	af_copy_array(&p, b);
 	dim_t d_order[] = { 1 };
-	af_constant(&a, 2, 1, d_order, typef);
+	af_constant(&a, 0, 1, d_order, typef);
 	af_constant(&norm_ep2, 0, 1, d_order, typef);
-	af_constant(&key, 0, 1, d_order, s32);
 
 	int msize = 0;
 	if (typef == f64)
@@ -4749,14 +4747,9 @@ void AFire::test_2(af_array* out, af_array A, af_array b)
 	af_get_device_ptr((void**)d_p, p);
 
 	cl_mem *d_n = (cl_mem*)clCreateBuffer(af_context,
-		CL_MEM_WRITE_ONLY, msize,
+		CL_MEM_READ_WRITE, msize,
 		NULL, &status);
 	af_get_device_ptr((void**)d_n, norm_ep2);
-
-	cl_mem *d_key = (cl_mem*)clCreateBuffer(af_context,
-		CL_MEM_READ_WRITE, sizeof(int),
-		NULL, &status);
-	af_get_device_ptr((void**)d_key, key);
 
 	size_t program_length = strlen(gc_source);
 
@@ -4778,6 +4771,7 @@ void AFire::test_2(af_array* out, af_array A, af_array b)
 		&status);
 
 	// 5.estableciendo los argumentos
+	int key = 8;
 	int i = 0;
 	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_A);
 	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_B);
@@ -4787,14 +4781,104 @@ void AFire::test_2(af_array* out, af_array A, af_array b)
 	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_p);//p
 	clSetKernelArg(kernel, i++, msize*localWorkSize, 0);
 	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_n);//norm
-	clSetKernelArg(kernel, i++, sizeof(cl_mem), d_key);
+	clSetKernelArg(kernel, i++, sizeof(cl_int), &key);
 	clSetKernelArg(kernel, i++, sizeof(cl_int), &size_elmA);
 
 	//6. ejecutando el kernel
-	clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
-		&globalWorkSize, &localWorkSize, 0, NULL,
-		NULL);
-	
+	//alistando los argumentso antes de entrar a la 
+	//iteración. Se toma como primera aproximación el
+	//vector de constantes b, es aquí mismo donde se irá
+	//almacenando cada aproximación.
+
+	//* para empezar key=8, calculará r=b-A*b
+	//* para key=9, copiará los valores de r en p y 
+	//calculará z=A*p
+	//* para key=1, calculará p.z (producto escalar) y lo 
+	//almacenará en norm_ep2
+	//* para key=5, calculará r.p (producto escalar) y lo 
+	//almacenará en a
+	//* para key=6, guardará el valor final de a y reiniciará 
+	//norm_ep2 a cero. a=(r.p)/(p.z) el numerador
+	//y denominador son valores que se calcularon
+	// con key igual a 5 y 1 respectivamente
+	//* para key=7, calculará b+=a.*p,  
+	for (int t = 0; t < 6; t++) {
+		clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+			&globalWorkSize, &localWorkSize, 0, NULL,
+			NULL);
+		key++;
+		if (key == 10)
+			key = 1;
+		else if (key == 2)
+			key = 5;
+		else;
+		clSetKernelArg(kernel, 8, sizeof(cl_int),
+				&key);
+	}
+
+	//iniciando la iteración
+	//* para key=1, calcula p.z (producto escalar) y
+	//lo guarda en norm_ep2
+	//* para key=2, calcula r.z (producto escalar) y
+	//lo guarda en a
+	//* para key=3
+	//calculará p=r+B.*p, B=-(r.z)/(p.z), el numerador
+	//y denominador son valores que se calcularon
+	// con key igual a 2 y 1 respectivamente
+	//* para key=4, calculará z=A*p
+	//* para key=5
+	//calculará el producto escalar r.p y lo almacenará
+	//en a, antes de seguir a key 6, deberá calcularse
+	//nuevamente p.z con key=1
+	//* para key=6 
+	//guardará el valor final de a y reiniciará 
+	//norm_pow2 a cero. a=(r.p)/(p.z) el numerador
+	//y denominador son valores que se calcularon
+	// con key igual a 5 y 1 respectivamente
+	//*para key=7, calculará b+=a.*p, que es la
+	//nueva aproximación.
+	int I = 0;
+	key = 0;
+
+	for (int j = 0; j < size_elmA; j++) {
+
+		clSetKernelArg(kernel, 8, sizeof(cl_int),
+			&key);
+		//para key=0, calculará r-=a.*z y calculará el
+		//cuadrado de la norma
+		clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+			&globalWorkSize, &localWorkSize, 0, NULL,
+			NULL);
+
+		double _norm;
+		af_get_scalar(&_norm, norm_ep2);
+		if (sqrt(_norm) < 1e-6)
+			break;
+		key++;
+
+		for (int t = 0; t < 7; t++) {
+			clSetKernelArg(kernel, 8, sizeof(cl_int),
+				&key);
+			clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+				&globalWorkSize, &localWorkSize, 0, NULL,
+				NULL);
+			key++;
+			//para key=6, deberá actualizarse el valor
+			//de p.z con key=1
+			if (key == 6) {
+				int keyp = 1;
+				clSetKernelArg(kernel, 8, sizeof(cl_int),
+					&keyp);
+				clEnqueueNDRangeKernel(af_queue, kernel, 1, 0,
+					&globalWorkSize, &localWorkSize, 0, NULL,
+					NULL);
+			}
+		}
+		//reiniciando key para una nueva iteración
+		key = 0;
+		I++;
+	}
+
 	//copiando solución
 	af_copy_array(out, r);
 	//7. devolviendo el control de memoria af::array a ArrayFire 
@@ -4805,13 +4889,10 @@ void AFire::test_2(af_array* out, af_array A, af_array b)
 	af_unlock_array(z);
 	af_unlock_array(p);
 	af_unlock_array(norm_ep2);
-	af_unlock_array(key);
 
 	//impresiones
-	af_print_array(key);
-	int norm1;
-	af_get_scalar(&norm1, key);
-	std::cout << norm1 << std::endl;
+	af_print_array(a);
+	af_print_array(b);
 
 	//af_get_scalar(&norm1, key);
 	//std::cout << norm1[0] << std::endl;
@@ -4821,7 +4902,6 @@ void AFire::test_2(af_array* out, af_array A, af_array b)
 	af_release_array(z);
 	af_release_array(p);
 	af_release_array(norm_ep2);
-	af_release_array(key);
 }
 
 void AFire::global_sync_test(af_array* dC, af_array dA,
