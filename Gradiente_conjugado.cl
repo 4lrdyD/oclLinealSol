@@ -1,6 +1,6 @@
 /*
 =========================================
-revisión 0.0.6 15-01-2020, 00:20 VS 2017
+revisión 0.0.7 16-01-2020, 01:30 VS 2017
 =========================================
 */
 /* Solución de un sistema de ecuaciones, usando 
@@ -544,9 +544,9 @@ columna simple precisión*/
 __kernel void
 gconj_c(__global double* A, __global double* b,
 	__global double* r, __global double* a,
-	__global double* z,__global double* p,
+	__global double* z, __global double* p,
 	__local double* partialSum,
-	__global double* norm_pow2,
+	__global double* norm_pow2, __global double* help,
 	int key, int order)
 {
 	int tgx = get_global_id(0);
@@ -561,10 +561,10 @@ gconj_c(__global double* A, __global double* b,
 	}
 
 	//calculará el producto escalar de p y z y lo 
-	//almacenará momentaneamente en norm_pow2 y reiniciará
-	//a a cero.
+	//almacenará momentaneamente en help y reiniciará
+	//"a" a cero.
 	else if (key == 1) {
-		vec_vec_mul(p, z, partialSum, norm_pow2, order);
+		vec_vec_mul(p, z, partialSum, help, order);
 		if (tgx == 0)
 			a[0] = 0;
 	}
@@ -577,30 +577,32 @@ gconj_c(__global double* A, __global double* b,
 	//y denominador son valores que se calcularon
 	// con key igual a 2 y 1 respectivamente
 	else if (key == 3) {
-		double val = -a[0] / norm_pow2[0];
+		double val = -a[0] / help[0];
 		for (int x = tgx; x < order;
 			x += get_global_size(0))
 			p[x] = r[x] + val * p[x];
 	}
 
-	//calculará z=A*p
-	else if (key == 4)
-		mat_vec_mul(A, b, partialSum, z, order);
-
+	//calculará z=A*p y reiniciará help
+	else if (key == 4) {
+		mat_vec_mul(A, p, partialSum, z, order);
+		if (tgx == 0)
+			help[0] = 0;
+	}
 	//calculará el producto escalar r.p y lo almacenará
-	//en a
+	//en a, key=1 deberá ser llamado previamente para
+	//reiniciar a y actualizar p.z
 	else if (key == 5)
 		vec_vec_mul(r, p, partialSum, a, order);
 
-	//guardará el valor final de a y reiniciará 
+	//guardará el valor final de a y reiniciará help y
 	//norm_pow2 a cero. a=(r.p)/(p.z) el numerador
 	//y denominador son valores que se calcularon
-	// con key igual a 5 y 1 respectivamente, key=1 deberá
-	//ser llamado nuevamente para el denominador ya que p
-	//y z se actualizaron despues de la primera llamada
+	// con key igual a 5 y 1 respectivamente.
 	else if (key == 6) {
 		if (tgx == 0) {
-			a[0] /= norm_pow2[0];
+			a[0] /= help[0];
+			help[0] = 0;
 			norm_pow2[0] = 0;
 		}
 	}

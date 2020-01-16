@@ -32,35 +32,76 @@ int main() {
 	af_matmul(&n1, a, b, AF_MAT_NONE, AF_MAT_NONE);
 	af_array r;
 	af_sub(&r, b, n1, false);
-	af_print_array(r);
 	
 	af_array z;
 	af_matmul(&z, a, r, AF_MAT_NONE, AF_MAT_NONE);
-	af_print_array(z);
 
 	af_array p;
 	af_array a_;
 	af_array rp;
 	af_array pz;
 	af_array ap;
-	af_array t;
+	af_array x;
 	af_copy_array(&p, r);
 	af_matmul(&rp, r, p, AF_MAT_TRANS, AF_MAT_NONE);
 	af_matmul(&pz, p, z, AF_MAT_TRANS, AF_MAT_NONE);
 	af_div(&a_, rp, pz, false);
-	af_print_array(a_);
 
 	af_mul(&ap, a_, p, true);
-	af_add(&t, b, ap, false);
-	af_print_array(t);
-	std::cout << 1e-6 << std::endl;
+	af_add(&x, b, ap, false);
 
-	af_array sol;
-	AFire::SELchol_c(&sol, a, b);
-	af_print_array(sol);
+	af_array copyr;
+	af_array axz;
+	af_array rtxz;
+	af_array ptxz;
+	af_array rsp;
+	af_array B_;
+	af_array zero;
+	dim_t d_order[] = { 1 };
+	af_constant(&zero, 0, 1, d_order, f64);
+
+	af_array Bxp;
+	af_array rtxp;
+	af_array x0;
+	af_array axp;
+	//for (int j = 0; j < 7; j++) {
+		af_copy_array(&copyr, r);
+		af_mul(&axz, a_, z, true);
+		af_sub(&r, copyr, axz, false);
+		af_print_array(r);
+		double _norm;
+		af_norm(&_norm, r, AF_NORM_EUCLID, 1, 1);
+		std::cout << _norm << std::endl;
+
+		af_matmul(&rtxz, r, z, AF_MAT_TRANS, AF_MAT_NONE);
+		af_matmul(&ptxz, p, z, AF_MAT_TRANS, AF_MAT_NONE);
+		af_div(&rsp, rtxz, ptxz, false);
+		af_sub(&B_, zero, rsp, false);
+
+		af_mul(&Bxp, B_, p, true);
+		af_add(&p, r, Bxp, false);
+		af_print_array(p);
+
+		af_matmul(&z, a, p, AF_MAT_NONE, AF_MAT_NONE);
+		af_print_array(z);
+
+		af_matmul(&rtxp, r, p, AF_MAT_TRANS, AF_MAT_NONE);
+		af_matmul(&ptxz, p, z, AF_MAT_TRANS, AF_MAT_NONE);
+		af_div(&a_, rtxp, ptxz, false);
+		af_print_array(a_);
+
+		af_mul(&axp, a_, p, true);
+		af_copy_array(&x0, x);
+		af_add(&x, x0, axp, false);
+		af_print_array(x);
+
+	//}
 
 
+	std::cout << "===================" << std::endl;
+	af_print_array(b);
 	af_array out;
 	AFire::test_2(&out, a, b);
+	af_print_array(b);
 
 }
