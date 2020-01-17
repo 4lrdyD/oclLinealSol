@@ -1,5 +1,5 @@
 //==========================================
-//revisión 0.8.0 10-01-2020, 17:15, VS 2017
+//revisión 0.8.1 17-01-2020, 00:20, VS 2017
 //==========================================
 #pragma once
 #ifdef HEADER_EXPORTS
@@ -105,8 +105,28 @@ public:
 	//-------------------------
 	//2.2 gradientes conjugados
 	//-------------------------
+
 	static HEADER_API
-		void SEL_gc(af_array*, af_array, af_array, double);
+	/*Solución del sistema de ecuaciones lineales de la
+	forma Ax=b,	usando el método de gradientes
+	conjugados, A es una matriz simétrica y
+	definida positiva.
+	sol: contendrá la solución
+	Ierr: error máximo para la solución
+	*/
+		void SEL_gc(af_array* sol, af_array A,
+			af_array b, double Ierr);
+	static HEADER_API
+	/*Solución del sistema de ecuaciones lineales de la
+	forma Ax=b,	usando el método de gradientes
+	conjugados, A es una matriz simétrica y 
+	definida positiva.
+	Ierr: error máximo para la solución
+	Las operaciones se realizarán en sitio, b
+	contendrá al final la solución del sistema.
+	*/
+		void SEL_gc(af_array A, af_array b,
+			double Ierr);
 	static HEADER_API
 		af::array SEL_gc(af::array, af::array, double);
 	static HEADER_API
@@ -115,8 +135,8 @@ public:
 		usando el método de gradientes conjugados
 
 		A debe ser introducido como argumento en su forma
-		dispersa (ver función fac_sparse_chol_c), siendo la
-		forma densa una matriz simétrica y definida
+		dispersa (ver función fac_sparse_chol_c),
+		siendo A una matriz simétrica y definida
 		positiva*/
 		void SELgc_sparse(af_array* C, af_array elmA,
 			af_array colA, af_array rowA, af_array b,
@@ -129,7 +149,7 @@ public:
 
 		A debe ser introducido como argumento en su forma
 		dispersa (ver función fac_sparse_chol_sks),
-		siendo la forma densa una matriz simétrica y
+		siendo A una matriz simétrica y
 		definida positiva*/
 		void SELgc_sparse_sks(af_array* C,
 			af_array elmA, af_array idxA, af_array b,
