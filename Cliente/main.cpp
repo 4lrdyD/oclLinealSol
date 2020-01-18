@@ -3,14 +3,12 @@
 
 using namespace af;
 int main() {
-	double A[]={2.0,2.0,0.0,0.0,3.0,0.0,0.0,
-		2.0,  4.0,   5.0,    6.0, 7.0, 0.0, 0.0,
-		0.0,  5.0,  15.0,    0.0, 0.0, 4.0, 0.0,
-		0.0,  6.0,   0.0,  200.0,    0.0,6.0,0.0,
-		3.0,  7.0,   0.0,    0.0,  200.0,2.0, 9.0,
-		0.0,  0.0,   4.0,    6.0,    2.0,100.0,6.0,
-		0.0,  0.0,   0.0,    0.0,    9.0, 6.0,  18.0};
-	double B[] = { 7.0,
+	
+	float _elmA[] = { 2,2,0,0,3,4,5,6,7,15,
+		0,0,4,200,0,6,
+	200,2,9,100,6,18 };
+	int _idxA[] = { 0,5,9,13,16,19,21 };
+	float B[] = { 7.0,
 		24.0,
 		24.0,
 		212.0,
@@ -18,20 +16,20 @@ int main() {
 		118.0,
 		33.0 };
 
-	af_array a;
+	af_array elmA;
+	af_array idxA;
 	af_array b;
-	dim_t size1[] = { 7,7 };
-	dim_t size2[] = { 7};
+	dim_t size1[] = {22};
+	dim_t size2[] = {7};
 
-	af_create_array(&a, A, 2, size1, f64);
-	af_print_array(a);
-	af_create_array(&b, B, 1, size2, f64);
+	af_create_array(&elmA, _elmA, 1, size1, f32);
+	af_print_array(elmA);
+	af_create_array(&idxA, _idxA, 1, size2, s32);
+	af_print_array(idxA);
+	af_create_array(&b, B, 1, size2, f32);
 	af_print_array(b);
 
-	AFire::SEL_gc(a, b, 1e-6);
+	AFire::SELgc_sparse_sks(elmA, idxA, b, 1e-6);
 	af_print_array(b);
 
-	double n1 = 5.456467;
-	float n2 = -1.456456;
-	std::cout << (n1 + n2) << std::endl;
 }

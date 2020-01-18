@@ -1,5 +1,5 @@
 //==========================================
-//revisión 0.8.1 17-01-2020, 00:20, VS 2017
+//revisión 0.8.2 17-01-2020, 22:20, VS 2017
 //==========================================
 #pragma once
 #ifdef HEADER_EXPORTS
@@ -142,6 +142,21 @@ public:
 			af_array colA, af_array rowA, af_array b,
 			double Ierr);
 	static HEADER_API
+		/*Solución del sistema de ecuaciones lineales de la
+		forma Ax=b para matrices en forma dispersa,
+		usando el método de gradientes conjugados
+
+		A debe ser introducido como argumento en su forma
+		dispersa (ver función fac_sparse_chol_c),
+		siendo A una matriz simétrica y definida
+		positiva
+		
+		Las operaciones se realizarán en sitio, 
+		se modificará b, para contener la solución*/
+		void SELgc_sparse( af_array elmA,
+			af_array colA, af_array rowA, af_array b,
+			double Ierr);
+	static HEADER_API
 		/*Solución del sistema de ecuaciones lineales
 		de la forma Ax=b para matrices en forma
 		dispersa (SKS), usando el método de gradientes
@@ -154,6 +169,21 @@ public:
 		void SELgc_sparse_sks(af_array* C,
 			af_array elmA, af_array idxA, af_array b,
 			double Ierr);
+	static HEADER_API
+		/*Solución del sistema de ecuaciones lineales
+		de la forma Ax=b para matrices en forma
+		dispersa (SKS), usando el método de gradientes
+		conjugados
+
+		A debe ser introducido como argumento en su forma
+		dispersa (ver función fac_sparse_chol_sks),
+		siendo A una matriz simétrica y
+		definida positiva.
+		
+		Las operaciones se realizarán en sitio, b
+		se modificará para contener la solución*/
+		void SELgc_sparse_sks(af_array elmA,
+			af_array idxA, af_array b, double Ierr);
 	//------------
 	//2.3 Cholesky
 	//------------

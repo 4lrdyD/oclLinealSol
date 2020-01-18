@@ -20,7 +20,9 @@ SELgj_c2d=?SELgj_c2d@AFire@@SAXPEAPEAXPEAX1@Z
 SEL_gc=?SEL_gc@AFire@@SAXPEAPEAXPEAX1N@Z
 SEL_gcL=?SEL_gc@AFire@@SAXPEAX0N@Z 
 SELgc_sparse=?SELgc_sparse@AFire@@SAXPEAPEAXPEAX111N@Z
+SELgc_sparseL=?SELgc_sparse@AFire@@SAXPEAX000N@Z 
 SELgc_sparse_sks=?SELgc_sparse_sks@AFire@@SAXPEAPEAXPEAX11N@Z
+SELgc_sparse_sksL=?SELgc_sparse_sks@AFire@@SAXPEAX00N@Z 
 
 fac_chol_c=?fac_chol_c@AFire@@SAXPEAPEAXPEAX@Z 
 fac_chol_cL=?fac_chol_c@AFire@@SAXPEAX@Z

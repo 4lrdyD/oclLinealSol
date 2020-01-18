@@ -1,6 +1,6 @@
 /*
 =========================================
-revisión 0.0.8 17-01-2020, 00:20 VS 2017
+revisión 0.0.9 17-01-2020, 22:20 VS 2017
 =========================================
 */
 /* Solución de un sistema de ecuaciones, usando 
@@ -32,11 +32,14 @@ float atom_add_float(__global float* address, float val);
 void mat_vec_mul_sp(__global float* A, __global float* b,
 	__local float* partialSum, __global float* result,
 	int order);
+void mat_vec_mul_sub_sp(__global float* A, __global float* x0,
+	__global float* b, __local float* partialSum,
+	__global float* r, int order);
 void vec_vec_mul_sp(__global float* a, __global float* b,
 	__local float* partialSum, __global float* result,
 	int size);
-void vec_vec_mul1_sp(__global float* a, __global float* b,
-	__local float* partialSum, __global float* result,
+void norm_euclid_pow2_sp(__global float* v,
+	__global float* norm, __local float* partialSum,
 	int size);
 void sparse_mat_vec_mul1_sp(__global float* elmA,
 	__global int* colA, __global int* rowA, __global float* b,
@@ -95,13 +98,95 @@ void sparse_mat_vec_mul2_sks(__global double* elmA,
 /*Kernel que concibe los elementos de A, como ordenados por 
 columna simple precisión*/
 __kernel void
-gconj_c_sp(__global float* a, __global float* b,
-	__local float* partialSum, __global float* result,
-	int size)
+gconj_c_sp(__global float* A, __global float* b,
+	__global float* r, __global float* a,
+	__global float* z, __global float* p,
+	__local float* partialSum,
+	__global float* norm_pow2, __global float* help,
+	int key, int order)
 {
-	mat_vec_mul_sp(a, b, partialSum, result, size);
+	int tgx = get_global_id(0);
+
+	//calculará r-=a.*z y el cuadrado de la norma de r
+	if (key == 0) {
+		float val = a[0];
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			r[x] -= val * z[x];
+		norm_euclid_pow2_sp(r, norm_pow2, partialSum,
+			order);
+	}
+
+	//calculará el producto escalar de p y z y lo 
+	//almacenará momentaneamente en help y reiniciará
+	//"a" a cero.
+	else if (key == 1) {
+		vec_vec_mul_sp(p, z, partialSum, help, order);
+		if (tgx == 0)
+			a[0] = 0;
+	}
+	//calculará el producto escalar de r y z y lo 
+	//almacenará momentaneamente en a
+	else if (key == 2)
+		vec_vec_mul_sp(r, z, partialSum, a, order);
+
+	//calculará p=r+B.*p, B=-(r.z)/(p.z), el numerador
+	//y denominador son valores que se calcularon
+	// con key igual a 2 y 1 respectivamente
+	else if (key == 3) {
+		float val = -a[0] / help[0];
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			p[x] = r[x] + val * p[x];
+	}
+
+	//calculará z=A*p y reiniciará help
+	else if (key == 4) {
+		mat_vec_mul_sp(A, p, partialSum, z, order);
+		if (tgx == 0)
+			help[0] = 0;
+	}
+	//calculará el producto escalar r.p y lo almacenará
+	//en a, key=1 deberá ser llamado previamente para
+	//reiniciar a y actualizar p.z
+	else if (key == 5)
+		vec_vec_mul_sp(r, p, partialSum, a, order);
+
+	//guardará el valor final de a y reiniciará help y
+	//norm_pow2 a cero. a=(r.p)/(p.z) el numerador
+	//y denominador son valores que se calcularon
+	// con key igual a 5 y 1 respectivamente.
+	else if (key == 6) {
+		if (tgx == 0) {
+			a[0] /= help[0];
+			help[0] = 0;
+			norm_pow2[0] = 0;
+		}
+	}
+
+	//calculará b+=a.*p,  
+	else if (key == 7) {
+		float val = a[0];
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			b[x] += val * p[x];
+	}
+
+	//calculará r=b-A*b
+	else if (key == 8)
+		mat_vec_mul_sub_sp(A, b, b, partialSum, r, order);
+
+	//calculará z=A*r y copiará r en p
+	else if (key == 9) {
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			p[x] = r[x];
+		mat_vec_mul_sp(A, r, partialSum, z, order);
+	}
+	else;
 }
 
+//result=Ab (A:matriz nxn, b:vector n)
 void mat_vec_mul_sp(__global float* A, __global float* b,
 	__local float* partialSum, __global float* result,
 	int order) {
@@ -109,7 +194,7 @@ void mat_vec_mul_sp(__global float* A, __global float* b,
 	int tx = get_local_id(0);
 	int bx = get_group_id(0);
 
-	for (int y = bx; y < order; y+= get_num_groups(0)) {
+	for (int y = bx; y < order; y += get_num_groups(0)) {
 		float sum = 0;
 		//fila de A, determinada por y
 		__global float* row = A + y * order;
@@ -130,17 +215,21 @@ void mat_vec_mul_sp(__global float* A, __global float* b,
 	}
 }
 
-void vec_vec_mul_sp(__global float* a, __global float* b,
-	__local float* partialSum, __global float* result,
-	int size) {
+//r=b-Ax0 (A:matriz nxn, b,x0:vectores n)
+void mat_vec_mul_sub_sp(__global float* A,
+	__global float* x0, __global float* b,
+	__local float* partialSum, __global float* r,
+	int order) {
 	//índices de hilo (local) y de grupo
 	int tx = get_local_id(0);
 	int bx = get_group_id(0);
-	//solo se usará un grupo
-	if (bx == 0) {
+
+	for (int y = bx; y < order; y += get_num_groups(0)) {
 		float sum = 0;
-		for (int x = tx; x < size; x+=get_local_size(0))
-			sum += a[x] * b[x];
+		//fila de A, determinada por y
+		__global float* row = A + y * order;
+		for (int x = tx; x < order; x += get_local_size(0))
+			sum += row[x] * x0[x];
 		partialSum[tx] = sum;
 		//suma por reducción en paralelo
 		for (int stride = get_local_size(0) / 2;
@@ -150,13 +239,14 @@ void vec_vec_mul_sp(__global float* a, __global float* b,
 			if (tx < stride)
 				partialSum[tx] += partialSum[tx + stride];
 		}
-		//solo un hilo realiz la escritura
+		//solo un hilo realiza la escritura
 		if (tx == 0)
-			result[0] = partialSum[0];
+			r[y] = b[y] - partialSum[0];
 	}
 }
 
-void vec_vec_mul1_sp(__global float* a, __global float* b,
+//result=a.b (producto escalar)
+void vec_vec_mul_sp(__global float* a, __global float* b,
 	__local float* partialSum, __global float* result,
 	int size) {
 	//índices de hilo (local y global) y de grupo
@@ -165,7 +255,7 @@ void vec_vec_mul1_sp(__global float* a, __global float* b,
 	int bx = get_group_id(0);
 	//para almacenar una suma parcial
 	float sum = 0;
-	for (int x = tgx; x < size;	x += get_global_size(0)) {
+	for (int x = tgx; x < size; x += get_global_size(0)) {
 		sum += a[x] * b[x];
 	}
 	partialSum[tx] = sum;
@@ -182,6 +272,35 @@ void vec_vec_mul1_sp(__global float* a, __global float* b,
 		//ya que varios bloques tienen una suma parcial
 		//necesitamos acumular usando la función atómica
 		atom_add_float(&(result[0]), partialSum[0]);
+}
+
+//calculará el cuadrado de la norma euclidea de v
+void norm_euclid_pow2_sp(__global float* v,
+	__global float* norm, __local float* partialSum,
+	int size) {
+	//índices de hilo (local y global) y de grupo
+	int tx = get_local_id(0);
+	int tgx = get_global_id(0);
+	int bx = get_group_id(0);
+	//para almacenar una suma parcial
+	float sum = 0;
+	for (int x = tgx; x < size; x += get_global_size(0)) {
+		sum += pown(v[x], 2);
+	}
+	partialSum[tx] = sum;
+	//suma por reducción en paralelo
+	for (int stride = get_local_size(0) / 2;
+		stride > 0; stride /= 2) {
+		//sincronizando
+		barrier(CLK_LOCAL_MEM_FENCE);
+		if (tx < stride)
+			partialSum[tx] += partialSum[tx + stride];
+	}
+	//solo un hilo realiz la escritura
+	if (tx == 0)
+		//ya que varios bloques tienen una suma parcial
+		//necesitamos acumular usando la función atómica
+		atom_add_float(&(norm[0]), partialSum[0]);
 }
 
 /*Aplicado a matrices dispersas y simétricas:
@@ -227,6 +346,121 @@ rowA=[	1
 		2
 		3]
 */
+
+//kernel principal para el formato csc (sparse)
+__kernel void
+gconj_sparse_sp(__global float* elmA, __global int* colA,
+	__global int* rowA, __global float* b,
+	__global float* r, __global float* a,
+	__global float* z, __global float* p,
+	__local float* partialSum,
+	__global float* norm_pow2, __global float* help,
+	int key, int order)
+{
+	int tgx = get_global_id(0);
+
+	//calculará r-=a.*z y el cuadrado de la norma de r
+	if (key == 0) {
+		float val = a[0];
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			r[x] -= val * z[x];
+		norm_euclid_pow2_sp(r, norm_pow2, partialSum, order);
+	}
+
+	//calculará el producto escalar de p y z y lo 
+	//almacenará momentaneamente en help y reiniciará
+	//"a" a cero.
+	else if (key == 1) {
+		vec_vec_mul_sp(p, z, partialSum, help, order);
+		if (tgx == 0)
+			a[0] = 0;
+	}
+	//calculará el producto escalar de r y z y lo 
+	//almacenará momentaneamente en a
+	else if (key == 2)
+		vec_vec_mul_sp(r, z, partialSum, a, order);
+
+	//calculará p=r+B.*p, B=-(r.z)/(p.z), el numerador
+	//y denominador son valores que se calcularon
+	// con key igual a 2 y 1 respectivamente
+	else if (key == 3) {
+		float val = -a[0] / help[0];
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			p[x] = r[x] + val * p[x];
+	}
+
+	//calculará z=A*p y reiniciará help (key=4,5 y 6)
+	else if (key == 4)
+		sparse_mat_vec_mul1_sp(elmA, colA, rowA, p, z,
+			order, partialSum);
+	else if (key == 5)
+		sparse_mat_vec_mul2_sp(elmA, colA, rowA, p, z,
+			order);
+	else if (key == 6) {
+		sparse_mat_vec_mul3_sp(elmA, colA, p, z, order);
+		if (tgx == 0)
+			help[0] = 0;
+	}
+	//calculará el producto escalar r.p y lo almacenará
+	//en a, key=1 deberá ser llamado previamente para
+	//reiniciar a y actualizar p.z
+	else if (key == 7)
+		vec_vec_mul_sp(r, p, partialSum, a, order);
+
+	//guardará el valor final de a y reiniciará help y
+	//norm_pow2 a cero. a=(r.p)/(p.z) el numerador
+	//y denominador son valores que se calcularon
+	// con key igual a 7 y 1 respectivamente.
+	else if (key == 8) {
+		if (tgx == 0) {
+			a[0] /= help[0];
+			help[0] = 0;
+			norm_pow2[0] = 0;
+		}
+	}
+
+	//calculará b+=a.*p,  
+	else if (key == 9) {
+		float val = a[0];
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			b[x] += val * p[x];
+	}
+
+	//calculará r=b-A*b (key 10, 11 y 12)
+	else if (key == 10)
+		sparse_mat_vec_mul1_sp(elmA, colA, rowA, b, r,
+			order, partialSum);
+	else if (key == 11)
+		sparse_mat_vec_mul2_sp(elmA, colA, rowA, b, r,
+			order);
+	else if (key == 12) {
+		for (int x = tgx; x < order;
+			x += get_global_size(0)) {
+			//ubicación del elemento diagonal en elmA
+			int diag = colA[x];
+			r[x] = b[x] - (r[x] + b[x] * elmA[diag]);
+		}
+	}
+
+	//calculará z=A*r y copiará r en p (key 13,14 y 15)
+	else if (key == 13)
+		sparse_mat_vec_mul1_sp(elmA, colA, rowA, r, z,
+			order, partialSum);
+	else if (key == 14)
+		sparse_mat_vec_mul2_sp(elmA, colA, rowA, r, z,
+			order);
+	else if (key == 15) {
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			p[x] = r[x];
+		sparse_mat_vec_mul3_sp(elmA, colA, r, z, order);
+	}
+	else;
+}
+
 /*la multiplicación de una matriz dispersa y simétrica
 guardada en el formato establecido, se realizará en tres
 partes. Ya que el almacenamiento se hace solo de los
@@ -388,8 +622,7 @@ void sparse_mat_vec_mul3_sp(__global float* elmA,
 	}
 }
 
-//Multiplicación matriz(SKS)-vector
-//---------------------------------
+
 /*Aplicado a matrices dispersas y simétricas:
 
 Sea una matriz representada en su forma densa por A.
@@ -409,6 +642,115 @@ ver ayuda de los kernels en los archivos cl de la
 factorización de Cholesky
 */
 
+//kernel principal para el formato sks (sparse_sks)
+//---------------------------------------------
+__kernel void
+gconj_sparse_sks_sp(__global float* elmA,
+	__global int* idxA, __global float* b,
+	__global float* r, __global float* a,
+	__global float* z, __global float* p,
+	__local float* partialSum,
+	__global float* norm_pow2, __global float* help,
+	int key, int order)
+{
+	int tgx = get_global_id(0);
+
+	//calculará r-=a.*z y el cuadrado de la norma de r
+	if (key == 0) {
+		float val = a[0];
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			r[x] -= val * z[x];
+		norm_euclid_pow2_sp(r, norm_pow2, partialSum, order);
+	}
+
+	//calculará el producto escalar de p y z y lo 
+	//almacenará momentaneamente en help y reiniciará
+	//"a" a cero.
+	else if (key == 1) {
+		vec_vec_mul_sp(p, z, partialSum, help, order);
+		if (tgx == 0)
+			a[0] = 0;
+	}
+	//calculará el producto escalar de r y z y lo 
+	//almacenará momentaneamente en a
+	else if (key == 2)
+		vec_vec_mul_sp(r, z, partialSum, a, order);
+
+	//calculará p=r+B.*p, B=-(r.z)/(p.z), el numerador
+	//y denominador son valores que se calcularon
+	// con key igual a 2 y 1 respectivamente
+	else if (key == 3) {
+		float val = -a[0] / help[0];
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			p[x] = r[x] + val * p[x];
+	}
+
+	//calculará z=A*p y reiniciará help (key=4 y 5)
+	else if (key == 4)
+		sparse_mat_vec_mul1_sks_sp(elmA, idxA, p, z,
+			order, partialSum);
+	else if (key == 5) {
+		sparse_mat_vec_mul2_sks_sp(elmA, idxA, p, z,
+			order);
+		if (tgx == 0)
+			help[0] = 0;
+	}
+	//calculará el producto escalar r.p y lo almacenará
+	//en a, key=1 deberá ser llamado previamente para
+	//reiniciar a y actualizar p.z
+	else if (key == 6)
+		vec_vec_mul_sp(r, p, partialSum, a, order);
+
+	//guardará el valor final de a y reiniciará help y
+	//norm_pow2 a cero. a=(r.p)/(p.z) el numerador
+	//y denominador son valores que se calcularon
+	// con key igual a 6 y 1 respectivamente.
+	else if (key == 7) {
+		if (tgx == 0) {
+			a[0] /= help[0];
+			help[0] = 0;
+			norm_pow2[0] = 0;
+		}
+	}
+
+	//calculará b+=a.*p,  
+	else if (key == 8) {
+		float val = a[0];
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			b[x] += val * p[x];
+	}
+
+	//calculará r=b-A*b (key 9, 10 y 11)
+	else if (key == 9)
+		sparse_mat_vec_mul1_sks_sp(elmA, idxA, b, r,
+			order, partialSum);
+	else if (key == 10)
+		sparse_mat_vec_mul2_sks_sp(elmA, idxA, b, r,
+			order);
+	else if (key == 11) {
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			r[x] = b[x] - r[x];
+	}
+
+	//calculará z=A*r y copiará r en p (key 12 y 13)
+	else if (key == 12)
+		sparse_mat_vec_mul1_sks_sp(elmA, idxA, r, z,
+			order, partialSum);
+	else if (key == 13) {
+		sparse_mat_vec_mul2_sks_sp(elmA, idxA, r, z,
+			order);
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			p[x] = r[x];
+	}
+	else;
+}
+
+//Multiplicación matriz(SKS)-vector
 /*la multiplicación de una matriz dispersa y simétrica
 guardada en el formato SKS, se realizará en dos
 partes. Ya que el almacenamiento se hace solo de los
@@ -540,7 +882,7 @@ void sparse_mat_vec_mul2_sks_sp(__global float* elmA,
 //------------------------
 
 /*Kernel que concibe los elementos de A, como ordenados por
-columna simple precisión*/
+columna doble precisión*/
 __kernel void
 gconj_c(__global double* A, __global double* b,
 	__global double* r, __global double* a,
@@ -790,6 +1132,117 @@ rowA=[	1
 		3]
 */
 
+//kernel principal para el formato csc (sparse)
+__kernel void
+gconj_sparse(__global double* elmA, __global int* colA,
+	__global int* rowA, __global double* b,
+	__global double* r, __global double* a,
+	__global double* z, __global double* p,
+	__local double* partialSum,
+	__global double* norm_pow2, __global double* help,
+	int key, int order)
+{
+	int tgx = get_global_id(0);
+
+	//calculará r-=a.*z y el cuadrado de la norma de r
+	if (key == 0) {
+		double val = a[0];
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			r[x] -= val * z[x];
+		norm_euclid_pow2(r, norm_pow2, partialSum, order);
+	}
+
+	//calculará el producto escalar de p y z y lo 
+	//almacenará momentaneamente en help y reiniciará
+	//"a" a cero.
+	else if (key == 1) {
+		vec_vec_mul(p, z, partialSum, help, order);
+		if (tgx == 0)
+			a[0] = 0;
+	}
+	//calculará el producto escalar de r y z y lo 
+	//almacenará momentaneamente en a
+	else if (key == 2)
+		vec_vec_mul(r, z, partialSum, a, order);
+
+	//calculará p=r+B.*p, B=-(r.z)/(p.z), el numerador
+	//y denominador son valores que se calcularon
+	// con key igual a 2 y 1 respectivamente
+	else if (key == 3) {
+		double val = -a[0] / help[0];
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			p[x] = r[x] + val * p[x];
+	}
+
+	//calculará z=A*p y reiniciará help (key=4,5 y 6)
+	else if (key == 4) 
+		sparse_mat_vec_mul1(elmA, colA, rowA, p, z, order,
+			partialSum);
+	else if (key==5)
+		sparse_mat_vec_mul2(elmA, colA, rowA, p, z, order);
+	else if (key == 6) {
+		sparse_mat_vec_mul3(elmA, colA, p, z, order);
+		if (tgx == 0)
+			help[0] = 0;
+	}
+	//calculará el producto escalar r.p y lo almacenará
+	//en a, key=1 deberá ser llamado previamente para
+	//reiniciar a y actualizar p.z
+	else if (key == 7)
+		vec_vec_mul(r, p, partialSum, a, order);
+
+	//guardará el valor final de a y reiniciará help y
+	//norm_pow2 a cero. a=(r.p)/(p.z) el numerador
+	//y denominador son valores que se calcularon
+	// con key igual a 7 y 1 respectivamente.
+	else if (key == 8) {
+		if (tgx == 0) {
+			a[0] /= help[0];
+			help[0] = 0;
+			norm_pow2[0] = 0;
+		}
+	}
+
+	//calculará b+=a.*p,  
+	else if (key == 9) {
+		double val = a[0];
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			b[x] += val * p[x];
+	}
+
+	//calculará r=b-A*b (key 10, 11 y 12)
+	else if (key == 10)
+		sparse_mat_vec_mul1(elmA, colA, rowA, b, r, order,
+			partialSum);
+	else if (key == 11)
+		sparse_mat_vec_mul2(elmA, colA, rowA, b, r, order);
+	else if (key == 12) {
+		for (int x = tgx; x < order;
+			x += get_global_size(0)) {
+			//ubicación del elemento diagonal en elmA
+			int diag = colA[x];
+			r[x] = b[x] - (r[x] + b[x] * elmA[diag]);
+		}
+	}
+
+	//calculará z=A*r y copiará r en p (key 13,14 y 15)
+	else if (key == 13)
+		sparse_mat_vec_mul1(elmA, colA, rowA, r, z, order,
+			partialSum);
+	else if (key==14)
+		sparse_mat_vec_mul2(elmA, colA, rowA, r, z, order);
+	else if (key == 15) {
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			p[x] = r[x];
+		sparse_mat_vec_mul3(elmA, colA, r, z, order);
+	}
+	else;
+}
+
 /*la multiplicación de una matriz dispersa y simétrica
 guardada en el formato establecido, se realizará en tres
 partes. Ya que el almacenamiento se hace solo de los
@@ -949,6 +1402,111 @@ void sparse_mat_vec_mul3(__global double* elmA,
 		int diag = colA[x];
 		c[x] += b[x] * elmA[diag];
 	}
+}
+
+//kernel principal para el formato sks (sparse_sks)
+//---------------------------------------------
+__kernel void
+gconj_sparse_sks(__global double* elmA, 
+	__global int* idxA, __global double* b,
+	__global double* r, __global double* a,
+	__global double* z, __global double* p,
+	__local double* partialSum,
+	__global double* norm_pow2, __global double* help,
+	int key, int order)
+{
+	int tgx = get_global_id(0);
+
+	//calculará r-=a.*z y el cuadrado de la norma de r
+	if (key == 0) {
+		double val = a[0];
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			r[x] -= val * z[x];
+		norm_euclid_pow2(r, norm_pow2, partialSum, order);
+	}
+
+	//calculará el producto escalar de p y z y lo 
+	//almacenará momentaneamente en help y reiniciará
+	//"a" a cero.
+	else if (key == 1) {
+		vec_vec_mul(p, z, partialSum, help, order);
+		if (tgx == 0)
+			a[0] = 0;
+	}
+	//calculará el producto escalar de r y z y lo 
+	//almacenará momentaneamente en a
+	else if (key == 2)
+		vec_vec_mul(r, z, partialSum, a, order);
+
+	//calculará p=r+B.*p, B=-(r.z)/(p.z), el numerador
+	//y denominador son valores que se calcularon
+	// con key igual a 2 y 1 respectivamente
+	else if (key == 3) {
+		double val = -a[0] / help[0];
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			p[x] = r[x] + val * p[x];
+	}
+
+	//calculará z=A*p y reiniciará help (key=4 y 5)
+	else if (key == 4)
+		sparse_mat_vec_mul1_sks(elmA, idxA, p, z, order,
+			partialSum);
+	else if (key == 5){
+		sparse_mat_vec_mul2_sks(elmA, idxA, p, z, order);
+		if (tgx == 0)
+			help[0] = 0;
+	}
+	//calculará el producto escalar r.p y lo almacenará
+	//en a, key=1 deberá ser llamado previamente para
+	//reiniciar a y actualizar p.z
+	else if (key == 6)
+		vec_vec_mul(r, p, partialSum, a, order);
+
+	//guardará el valor final de a y reiniciará help y
+	//norm_pow2 a cero. a=(r.p)/(p.z) el numerador
+	//y denominador son valores que se calcularon
+	// con key igual a 6 y 1 respectivamente.
+	else if (key == 7) {
+		if (tgx == 0) {
+			a[0] /= help[0];
+			help[0] = 0;
+			norm_pow2[0] = 0;
+		}
+	}
+
+	//calculará b+=a.*p,  
+	else if (key == 8) {
+		double val = a[0];
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			b[x] += val * p[x];
+	}
+
+	//calculará r=b-A*b (key 9, 10 y 11)
+	else if (key == 9)
+		sparse_mat_vec_mul1_sks(elmA, idxA, b, r, order,
+			partialSum);
+	else if (key == 10)
+		sparse_mat_vec_mul2_sks(elmA, idxA, b, r, order);
+	else if (key == 11) {
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			r[x] = b[x] - r[x];
+	}
+
+	//calculará z=A*r y copiará r en p (key 12 y 13)
+	else if (key == 12)
+		sparse_mat_vec_mul1_sks(elmA, idxA, r, z, order,
+			partialSum);
+	else if (key == 13){
+		sparse_mat_vec_mul2_sks(elmA, idxA, r, z, order);
+		for (int x = tgx; x < order;
+			x += get_global_size(0))
+			p[x] = r[x];
+	}
+	else;
 }
 
 //Multiplicación matriz(SKS)-vector
